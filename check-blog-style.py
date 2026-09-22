@@ -4,10 +4,11 @@
 用法：python check-blog-style.py [文件 ...]
 不给参数时校验默认三件：blog-bunny-tutte.md、README.md、index.html
 """
-import os, re, sys
+import os, re, sys, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT = ['blog-bunny-tutte.md', 'README.md', 'index.html']
+DEFAULT = sorted(os.path.basename(p) for p in glob.glob(os.path.join(HERE, 'blog-*.md'))) \
+          + ['README.md', 'index.html']
 sys.stdout.reconfigure(encoding='utf-8')
 
 BAD = [r'不是[^。；\n]{0,30}而是', r'并非[^。；\n]{0,30}而是', r'先不看[^。；\n]{0,20}而看',

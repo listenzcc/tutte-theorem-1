@@ -92,7 +92,15 @@ python -m http.server 8765
 
 ![闭环钉成五角星：14 个翻面](figs/fig4-star.png)
 
-完整分析在 [`blog-bunny-tutte.md`](blog-bunny-tutte.md)，含 7 张配图和一节踩坑清单。
+完整分析在 [`blog-bunny-tutte.md`](blog-bunny-tutte.md)，含 7 张配图。
+
+## 文章
+
+| 文章 | 内容 |
+|---|---|
+| [`blog-tutte-theory.md`](blog-tutte-theory.md) | 定理理论：表述与证明骨架（极值原理 → 局部单射 → 度论证）、三种权重的来头与正值性、定理的覆盖范围、与 Radó–Kneser–Choquet 定理的对应 |
+| [`blog-web-pages.md`](blog-web-pages.md) | 页面实现：管线七阶段、区域与圆盘判定、Gauss–Seidel 求解、逐三角形仿射贴图的矩阵推导、Canvas 2D 的取舍、两条实现的交叉校验 |
+| [`blog-bunny-tutte.md`](blog-bunny-tutte.md) | 实测笔记：模型拓扑体检、半径扫描表、翻面与畸变的量化结果、7 张配图 |
 
 ---
 
@@ -102,10 +110,13 @@ python -m http.server 8765
 index.html                      引导页（GitHub Pages 入口）
 .nojekyll                       关掉 Jekyll，让 Markdown 按原文件托管
 tutte-embedding-theorem.html    定理演示（参数曲面）
-tutte-embedding-theorem.md      定理说明
 uv-texture-mapping.html         任意图片贴图演示
 bunny-tutte.html                Stanford Bunny 演示
+
+blog-tutte-theory.md            定理理论
+blog-web-pages.md               页面实现
 blog-bunny-tutte.md             实测笔记（七节 + 7 张图）
+tutte-embedding-theorem.md      定理速查
 
 render-bunny-figs.py            离线出图与量化指标（numpy / scipy / matplotlib）
 model/bunny_small.obj           2503 顶点 / 4968 面
