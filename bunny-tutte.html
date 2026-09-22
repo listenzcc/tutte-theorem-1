@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stanford Bunny 上的 Tutte 嵌入：在扫描模型上切闭环、摊平、贴图</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e3e7ec; --ink:#1b2027; --ink2:#5b6573;
+    --accent:#2f6fd0; --ok:#17864f; --bad:#cf4438; --warn:#b8770f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1160px;margin:0 auto;padding:22px 18px 60px}
+  h1{font-size:21px;margin:0 0 4px;letter-spacing:.2px}
+  .sub{color:var(--ink2);font-size:13px;margin:0 0 16px;line-height:1.7}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:15px 17px;margin-bottom:14px}
+  .card h2{font-size:14px;margin:0 0 10px}
+  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:13px}
+  .ctl label{display:block;font-size:12px;color:var(--ink2);margin-bottom:5px}
+  .ctl label .val{color:var(--accent);font-weight:600}
+  select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:13px;color:var(--ink)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:11px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  .chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);cursor:pointer}
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:920px){.stage{grid-template-columns:1fr}}
+  canvas{width:100%;height:460px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px;touch-action:none}
+  .cap{font-size:12px;color:var(--ink2);margin:7px 0 0;line-height:1.65}
+  .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .st{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fafbfc}
+  .st .k{font-size:11px;color:var(--ink2)}
+  .st .v{font-size:14px;font-weight:600;margin-top:2px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .note{font-size:13px;line-height:1.85;color:var(--ink2);margin:0}
+  .note b{color:var(--ink)}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
+  #msg{font-size:13px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>在 Stanford Bunny 上切一个闭环，摊平，贴回去</h1>
+  <p class="sub">
+    前面两个演示用的是自己生成的参数曲面。这里换成真实扫描模型：Stanford Bunny（2503 顶点 / 4968 三角面，
+    <b>带 4 个洞的开曲面</b>）。在它表面取一个闭环 → 检查闭环内部是不是拓扑圆盘 → Tutte 嵌入解 UV → 贴图贴回去。
+  </p>
+
+  <div class="card">
+    <div id="msg">正在载入 model/bunny_small.obj …</div>
+  </div>
+
+  <div class="card">
+    <h2>控制</h2>
+    <div class="controls">
+      <div class="ctl">
+        <label>闭环中心（种子点）</label>
+        <select id="seed">
+          <option value="ear">左耳尖（y 最大）</option>
+          <option value="nose">鼻子（x 最大）</option>
+          <option value="tail">尾巴（x 最小）</option>
+          <option value="back">背部（z 最大）</option>
+          <option value="belly">腹部（y 最小 · 附近有洞）</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>闭环半径（BFS 跳数）<span class="val" id="hopVal">10</span></label>
+        <input type="range" id="hop" min="4" max="34" step="1" value="10" />
+      </div>
+      <div class="ctl">
+        <label>闭环钉成的边界形状</label>
+        <select id="shape">
+          <option value="circle">圆（凸）</option>
+          <option value="square">正方形（凸）</option>
+          <option value="star">五角星（非凸）</option>
+          <option value="ell">L 形（非凸）</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>凸组合权重</label>
+        <select id="weight">
+          <option value="mvc">均值坐标 MVC（恒正）</option>
+          <option value="uniform">均匀 1/deg</option>
+          <option value="cotan">余切 cotan（钝角变负）</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>贴图 / 左图显示</label>
+        <select id="view">
+          <option value="tex">UV 贴图（4×4 格）</option>
+          <option value="chart">色卡贴图</option>
+          <option value="dist">面积畸变热图</option>
+          <option value="wire">线框</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <button id="reset">重新松弛</button>
+      <button class="ghost" id="auto">自动旋转：关</button>
+      <button class="ghost" id="fit">复位视角</button>
+      <label class="chk"><input type="checkbox" id="fallback" checked /> 半径不合法时自动回退</label>
+      <span style="font-size:12px;color:var(--ink2)">左图可拖动旋转，滚轮缩放</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div>
+      <canvas id="c3d"></canvas>
+      <p class="cap"><b>左：3D 模型</b>。蓝色粗线 = 取到的闭环；闭环内部贴图，外部画成淡灰。<br />
+        橙色线 = 区域不是圆盘时切出来的多条边界环（此时 Tutte 定理不适用）。</p>
+    </div>
+    <div>
+      <canvas id="cuv"></canvas>
+      <p class="cap"><b>右：UV 空间</b>。虚线方框 = uv ∈ [−1,1]²（整张贴图）；闭环多边形内部才是真正用到的区域。<br />
+        红色三角形 = 翻面（有向面积 ≤ 0）。</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="status">
+      <div class="st"><div class="k">模型</div><div class="v" id="sMesh">—</div></div>
+      <div class="st"><div class="k">区域 V / E / F</div><div class="v" id="sSub">—</div></div>
+      <div class="st"><div class="k">欧拉特征 χ</div><div class="v" id="sChi">—</div></div>
+      <div class="st"><div class="k">闭环长度 / 半径</div><div class="v" id="sLoop">—</div></div>
+      <div class="st"><div class="k">凸组合前提</div><div class="v" id="sCond">—</div></div>
+      <div class="st"><div class="k">翻面三角形</div><div class="v" id="sFlip">—</div></div>
+      <div class="st"><div class="k">面积畸变 ΣUV/Σ3D</div><div class="v" id="sArea">—</div></div>
+      <div class="st"><div class="k">定理结论</div><div class="v" id="sVerdict">—</div></div>
+    </div>
+    <p class="note" style="margin-top:12px">
+      <b>χ = V − E + F</b> 是这里的硬指标：拓扑圆盘必须 χ = 1。兔子身上有 4 个洞，BFS 球一旦长到绕过某个洞，
+      χ 会掉到 0 或负数，边界也不再是单条闭环——这时 Tutte 定理的前提（拓扑圆盘）直接不成立，跟边界凸不凸、权重正不正无关。
+    </p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ============ OBJ 解析 ============ */
+let V = null, T = null, NV = 0, NT = 0;
+let adjOff = null, adjDat = null, e2f = null, faceN = null;
+
+function parseOBJ(text) {
+  const vv = [], tt = [];
+  for (const line of text.split(/\r?\n/)) {
+    const c = line.charCodeAt(0);
+    if (c === 118 && line.charCodeAt(1) === 32) {          // 'v '
+      const a = line.split(/\s+/);
+      vv.push(+a[1], +a[2], +a[3]);
+    } else if (c === 102 && line.charCodeAt(1) === 32) {   // 'f '
+      const a = line.split(/\s+/).slice(1).map(s => parseInt(s.split('/')[0], 10) - 1);
+      for (let i = 1; i < a.length - 1; i++) tt.push(a[0], a[i], a[i + 1]);  // 多边形扇形三角化
+    }
+  }
+  return { V: new Float64Array(vv), T: new Int32Array(tt) };
+}
+const ekey = (a, b) => (a < b ? a * 100000 + b : b * 100000 + a);
+
+function buildTopology() {
+  NT = T.length / 3;
+  // 邻居先去重再打包成 CSR：一个面给每个顶点贡献 2 个条目，但每条边被两个面共享，
+  // 直接按面展开会让每个邻居出现两次，所以必须先过一遍 Set
+  const sets = new Array(NV);
+  for (let v = 0; v < NV; v++) sets[v] = new Set();
+  for (let f = 0; f < NT; f++) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    sets[a].add(b); sets[a].add(c);
+    sets[b].add(c); sets[b].add(a);
+    sets[c].add(a); sets[c].add(b);
+  }
+  adjOff = new Int32Array(NV + 1);
+  for (let v = 0; v < NV; v++) adjOff[v + 1] = adjOff[v] + sets[v].size;
+  adjDat = new Int32Array(adjOff[NV]);
+  let k = 0;
+  for (let v = 0; v < NV; v++) for (const w of sets[v]) adjDat[k++] = w;
+  e2f = new Map();
+  for (let f = 0; f < NT; f++) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    const es = [ekey(a,b), ekey(b,c), ekey(c,a)];
+    for (const k of es) { const l = e2f.get(k); if (!l) e2f.set(k, [f]); else l.push(f); }
+  }
+  faceN = new Float64Array(NT * 3);
+  for (let f = 0; f < NT; f++) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    const ux = V[3*b]-V[3*a], uy = V[3*b+1]-V[3*a+1], uz = V[3*b+2]-V[3*a+2];
+    const wx = V[3*c]-V[3*a], wy = V[3*c+1]-V[3*a+1], wz = V[3*c+2]-V[3*a+2];
+    let nx = uy*wz - uz*wy, ny = uz*wx - ux*wz, nz = ux*wy - uy*wx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    faceN[3*f] = nx/L; faceN[3*f+1] = ny/L; faceN[3*f+2] = nz/L;
+  }
+}
+function normalize() {
+  // 与 render-bunny-figs.py 保持一致：包围盒中心 + 最大半边长
+  let cx = 0, cy = 0, cz = 0;
+  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+  for (let v = 0; v < NV; v++) {
+    const x = V[3*v], y = V[3*v+1], z = V[3*v+2];
+    if (x < mnx) mnx = x; if (x > mxx) mxx = x;
+    if (y < mny) mny = y; if (y > mxy) mxy = y;
+    if (z < mnz) mnz = z; if (z > mxz) mxz = z;
+  }
+  cx = (mnx + mxx) / 2; cy = (mny + mxy) / 2; cz = (mnz + mxz) / 2;
+  let m = 0;
+  for (let v = 0; v < NV; v++) {
+    const x = V[3*v]-cx, y = V[3*v+1]-cy, z = V[3*v+2]-cz;
+    m = Math.max(m, Math.abs(x), Math.abs(y), Math.abs(z));
+    V[3*v] = x; V[3*v+1] = y; V[3*v+2] = z;
+  }
+  if (m > 0) for (let i = 0; i < V.length; i++) V[i] /= m;
+}
+
+/* ============ 区域：BFS 球 → 内部三角面 + 边界环 ============ */
+function bfsDist(seed, hops) {
+  const dist = new Int32Array(NV).fill(-1);
+  dist[seed] = 0;
+  let frontier = [seed];
+  for (let d = 0; d < hops; d++) {
+    const next = [];
+    for (const v of frontier)
+      for (let k = adjOff[v]; k < adjOff[v+1]; k++) {
+        const w = adjDat[k];
+        if (dist[w] < 0) { dist[w] = d + 1; next.push(w); }
+      }
+    frontier = next;
+    if (!frontier.length) break;
+  }
+  return dist;
+}
+// 返回 {inside:[面号], loop:[顶点, 循环序] | null, cycles, chi, v,e,f}
+function buildDisk(dist) {
+  const inside = [];
+  for (let f = 0; f < NT; f++) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    if (dist[a] >= 0 && dist[b] >= 0 && dist[c] >= 0) inside.push(f);
+  }
+  const inSet = new Set(inside);
+  const out = new Map();                       // 边界有向边：start -> [end...]
+  for (const fi of inside) {
+    const t = [T[3*fi], T[3*fi+1], T[3*fi+2]];
+    for (let i = 0; i < 3; i++) {
+      const a = t[i], b = t[(i+1)%3];
+      const fs = e2f.get(ekey(a, b)) || [];
+      if (!fs.some(g => g !== fi && inSet.has(g))) {
+        if (!out.has(a)) out.set(a, []);
+        out.get(a).push(b);
+      }
+    }
+  }
+  // 串环
+  const visited = new Set(), cycles = [];
+  for (const start of out.keys()) {
+    if (visited.has(start)) continue;
+    const cyc = [start];
+    let cur = start, guard = 0, clean = true;
+    while (guard++ < 200000) {
+      const ends = out.get(cur) || [];
+      if (ends.length !== 1) { clean = false; break; }
+      const nx = ends[0];
+      visited.add(cur);
+      if (nx === start) break;
+      if (visited.has(nx)) { clean = false; break; }
+      cyc.push(nx); cur = nx;
+    }
+    cycles.push({ pts: cyc, clean });
+  }
+  // 欧拉特征
+  const vset = new Set(), eset = new Set();
+  for (const fi of inside) {
+    const a = T[3*fi], b = T[3*fi+1], c = T[3*fi+2];
+    vset.add(a); vset.add(b); vset.add(c);
+    eset.add(ekey(a,b)); eset.add(ekey(b,c)); eset.add(ekey(c,a));
+  }
+  const chi = vset.size - eset.size + inside.length;
+  const ok = cycles.length === 1 && cycles[0].clean && chi === 1 && inside.length > 0;
+  return { inside, cycles, chi, v: vset.size, e: eset.size, f: inside.length,
+           loop: ok ? cycles[0].pts : null, ok, nBoundary: out.size };
+}
+function findDisk(seed, hops, allowFallback) {
+  const tried = buildDisk(bfsDist(seed, hops));
+  if (tried.ok) return { disk: tried, hops, fallback: 0, tried };
+  if (!allowFallback) return { disk: null, hops, fallback: 0, tried };
+  for (let d = 1; d <= 10; d++) {
+    for (const cand of [hops - d, hops + d]) {
+      if (cand < 3 || cand > 60) continue;
+      const r = buildDisk(bfsDist(seed, cand));
+      if (r.ok) return { disk: r, hops: cand, fallback: d, tried };
+    }
+  }
+  return { disk: null, hops, fallback: -1, tried };
+}
+
+/* ============ 当前状态 ============ */
+let disk = null, inside = [], interiorList = [], boundaryLoop = [], uvOK = false;
+let UV = new Float64Array(0);
+let iter = 0, converged = false, negW = 0;
+let wMode = 'mvc', rows = null;
+
+const SHAPES = {
+  circle: null,
+  square: [[1,1],[-1,1],[-1,-1],[1,-1]],
+  star: (function(){ const p=[]; for (let i=0;i<10;i++){ const R=(i%2?0.42:1.0), a=-Math.PI/2+i*Math.PI/5; p.push([R*Math.cos(a), R*Math.sin(a)]); } return p; })(),
+  ell: [[1,1],[-0.15,1],[-0.15,-0.2],[-1,-0.2],[-1,-1],[1,-1]]
+};
+const CONVEX = { circle:true, square:true, star:false, ell:false };
+function shapePoint(name, t) {
+  if (name === 'circle') { const a = 2*Math.PI*t; return [Math.cos(a), Math.sin(a)]; }
+  const pts = SHAPES[name], n = pts.length, seg = [];
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i+1)%n];
+    const l = Math.hypot(b[0]-a[0], b[1]-a[1]); seg.push(l); total += l;
+  }
+  let d = t * total;
+  for (let i = 0; i < n; i++) {
+    if (d <= seg[i] || i === n-1) {
+      const s = seg[i] > 0 ? Math.min(d/seg[i], 1) : 0;
+      const a = pts[i], b = pts[(i+1)%n];
+      return [a[0]+(b[0]-a[0])*s, a[1]+(b[1]-a[1])*s];
+    }
+    d -= seg[i];
+  }
+  return pts[0];
+}
+function setBoundaryUV() {
+  const n = boundaryLoop.length, name = $('shape').value, cum = [0];
+  let total = 0;
+  for (let j = 0; j < n; j++) {
+    const a = boundaryLoop[j], b = boundaryLoop[(j+1)%n];
+    total += Math.hypot(V[3*b]-V[3*a], V[3*b+1]-V[3*a+1], V[3*b+2]-V[3*a+2]);
+    cum.push(total);
+  }
+  for (let j = 0; j < n; j++) {
+    const t = total > 0 ? cum[j]/total : j/n;
+    const q = shapePoint(name, t), v = boundaryLoop[j];
+    UV[2*v] = q[0]; UV[2*v+1] = q[1];
+  }
+}
+function resetInterior() {
+  for (const i of interiorList) { UV[2*i] = (Math.random()-0.5)*0.02; UV[2*i+1] = (Math.random()-0.5)*0.02; }
+  iter = 0; converged = false;
+}
+
+/* ============ 权重 ============ */
+const edgeW = new Map();
+function angAt(v, p, q) {
+  const ux = V[3*p]-V[3*v], uy = V[3*p+1]-V[3*v+1], uz = V[3*p+2]-V[3*v+2];
+  const wx = V[3*q]-V[3*v], wy = V[3*q+1]-V[3*v+1], wz = V[3*q+2]-V[3*v+2];
+  const nu = Math.hypot(ux,uy,uz), nw = Math.hypot(wx,wy,wz);
+  if (nu < 1e-14 || nw < 1e-14) return Math.PI/3;
+  const c = Math.max(-1, Math.min(1, (ux*wx+uy*wy+uz*wz)/(nu*nw)));
+  return Math.acos(c);
+}
+function rebuildWeights() {
+  edgeW.clear();
+  for (const fi of inside) {
+    const a = T[3*fi], b = T[3*fi+1], c = T[3*fi+2];
+    const A = angAt(a,b,c), B = angAt(b,c,a), C = angAt(c,a,b);
+    const tri = [[a,b,A,B,C],[b,c,B,C,A],[c,a,C,A,B]];
+    for (const [i,j,ai,aj,op] of tri) {
+      const k = ekey(i,j);
+      let e = edgeW.get(k);
+      if (!e) {
+        e = { lo: Math.min(i,j), hi: Math.max(i,j), tanLo:0, tanHi:0, cot:0,
+              len: Math.hypot(V[3*i]-V[3*j], V[3*i+1]-V[3*j+1], V[3*i+2]-V[3*j+2]) };
+        edgeW.set(k, e);
+      }
+      const ti = Math.tan(Math.min(ai, Math.PI*0.999)/2), tj = Math.tan(Math.min(aj, Math.PI*0.999)/2);
+      if (i === e.lo) { e.tanLo += ti; e.tanHi += tj; } else { e.tanHi += ti; e.tanLo += tj; }
+      const s = Math.sin(op);
+      e.cot += Math.abs(s) < 1e-10 ? 0 : Math.cos(op)/s;
+    }
+  }
+  rows = new Array(NV); negW = 0;
+  for (const i of interiorList) {
+    const js = [], ws = [];
+    for (let k = adjOff[i]; k < adjOff[i+1]; k++) {
+      const j = adjDat[k];
+      const e = edgeW.get(ekey(i,j));
+      if (!e) continue;                       // 该邻居不在当前圆盘内
+      let w = 1;
+      if (wMode === 'cotan') w = e.cot;
+      else if (wMode === 'mvc') w = (i === e.lo ? e.tanLo : e.tanHi) / Math.max(e.len, 1e-12);
+      if (!(w > 0)) negW++;
+      js.push(j); ws.push(w);
+    }
+    rows[i] = { js, ws };
+  }
+}
+function sweep() {
+  let maxd = 0;
+  for (const i of interiorList) {
+    const r = rows[i]; if (!r) continue;
+    let sx = 0, sy = 0, sw = 0;
+    for (let k = 0; k < r.js.length; k++) {
+      const w = r.ws[k], j = r.js[k];
+      sx += w*UV[2*j]; sy += w*UV[2*j+1]; sw += w;
+    }
+    if (Math.abs(sw) < 1e-12) continue;
+    const nx = sx/sw, ny = sy/sw;
+    const d = Math.hypot(nx-UV[2*i], ny-UV[2*i+1]); if (d > maxd) maxd = d;
+    UV[2*i] = nx; UV[2*i+1] = ny;
+  }
+  iter++;
+  if (maxd < 1e-8) converged = true;
+}
+
+/* ============ 贴图 ============ */
+const TEXN = 512;
+/* UV checker：4×4 格，沿 u 走色相、沿 v 走明度，叠加棋盘明暗与中心块。
+   与 render-bunny-figs.py 里的 uv_checker() 同一套参数。 */
+function makeChecker() {
+  const c = document.createElement('canvas'); c.width = TEXN; c.height = TEXN;
+  const g = c.getContext('2d');
+  const n = 4, cell = TEXN / n;
+  const BASE_H = 10, HUE_SPAN = 200, SAT = 0.42, L_HI = 0.82, L_LO = 0.52;
+  for (let j = 0; j < n; j++) {
+    const lBase = L_HI - (L_HI - L_LO) * j / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const dark = ((i + j) % 2) === 1;
+      const hue = BASE_H + HUE_SPAN * i / (n - 1);
+      const l = lBase - (dark ? 0.07 : 0);
+      g.fillStyle = `hsl(${hue},${SAT*100}%,${l*100}%)`;
+      g.fillRect(i*cell, j*cell, cell, cell);
+      const s2 = Math.round(cell * 0.46), o = Math.floor((cell - s2) / 2);
+      g.fillStyle = `hsl(${hue},${(SAT+0.06)*100}%,${(l + (dark ? 0.11 : -0.13))*100}%)`;
+      g.fillRect(i*cell + o, j*cell + o, s2, s2);
+    }
+  }
+  for (let k = 0; k <= n; k++) {
+    const p = Math.round(k * cell), main = (k % 2 === 0), w = main ? 3 : 2, q = p - (w >> 1);
+    g.fillStyle = main ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.38)';
+    g.fillRect(q, 0, w, TEXN);
+    g.fillRect(0, q, TEXN, w);
+  }
+  return c;
+}
+function makeChart() {
+  const c = document.createElement('canvas'); c.width = TEXN; c.height = TEXN;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0,0,TEXN,TEXN);
+  const n = 8, cell = TEXN/n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    g.fillStyle = `hsl(${360*i/n},72%,${40+40*j/n}%)`;
+    g.fillRect(i*cell, j*cell, cell, cell);
+  }
+  g.strokeStyle = 'rgba(20,24,32,0.55)'; g.lineWidth = 2;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath(); g.moveTo(i*cell,0); g.lineTo(i*cell,TEXN); g.stroke();
+    g.beginPath(); g.moveTo(0,i*cell); g.lineTo(TEXN,i*cell); g.stroke();
+  }
+  g.fillStyle = '#111820'; g.font = 'bold 96px sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillText('UV', TEXN/2, TEXN/2);
+  return c;
+}
+const TEX = { tex: makeChecker(), chart: makeChart() };
+const sOf = v => (UV[2*v]+1)/2, tOf = v => (1-UV[2*v+1])/2;
+
+/* ============ 画布 ============ */
+const c3d = $('c3d'), cuv = $('cuv');
+const g3 = c3d.getContext('2d'), g2 = cuv.getContext('2d');
+let yaw = 0.6, pitch = 0.25, zoom = 1.0, autoRot = false;
+let SPX = null, SPY = null, SDZ = null;
+
+function fitCanvas(cv, ctx) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)) {
+    cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+function projectAll(w, h) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const sc = Math.min(w, h) * 0.42 * zoom, ox = w/2, oy = h/2;
+  for (let v = 0; v < NV; v++) {
+    const x = V[3*v], y = V[3*v+1], z = V[3*v+2];
+    const x1 = x*cy - z*sy, z1 = x*sy + z*cy;
+    const y1 = y*cp - z1*sp, z2 = y*sp + z1*cp;
+    SPX[v] = ox + x1*sc; SPY[v] = oy - y1*sc; SDZ[v] = z2;
+  }
+}
+function uvArea2(f) {
+  const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+  return (UV[2*b]-UV[2*a])*(UV[2*c+1]-UV[2*a+1]) - (UV[2*c]-UV[2*a])*(UV[2*b+1]-UV[2*a+1]);
+}
+function tri3DArea(f) {
+  const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+  const ux = V[3*b]-V[3*a], uy = V[3*b+1]-V[3*a+1], uz = V[3*b+2]-V[3*a+2];
+  const wx = V[3*c]-V[3*a], wy = V[3*c+1]-V[3*a+1], wz = V[3*c+2]-V[3*a+2];
+  return 0.5*Math.hypot(uy*wz-uz*wy, uz*wx-ux*wz, ux*wy-uy*wx);
+}
+function heat(r) {
+  const t = Math.max(0, Math.min(1, (Math.log(Math.max(r,1e-6))/Math.LN2 + 1.6)/3.2));
+  const stops = [[91,143,214],[231,238,246],[224,138,95]];
+  const s = t*2, i = s < 1 ? 0 : 1, f = s < 1 ? s : s-1;
+  const A = stops[i], B = stops[i+1];
+  return `rgb(${Math.round(A[0]+(B[0]-A[0])*f)},${Math.round(A[1]+(B[1]-A[1])*f)},${Math.round(A[2]+(B[2]-A[2])*f)})`;
+}
+function drawTextured(g, f, flip, img) {
+  const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+  const s0x = SPX[a], s0y = SPY[a], s1x = SPX[b], s1y = SPY[b], s2x = SPX[c], s2y = SPY[c];
+  const u0 = sOf(a), v0 = tOf(a), u1 = sOf(b), v1 = tOf(b), u2 = sOf(c), v2 = tOf(c);
+  const d = (u1-u0)*(v2-v0) - (u2-u0)*(v1-v0);
+  if (Math.abs(d) < 1e-14) return;
+  const m11 = ((s1x-s0x)*(v2-v0) - (s2x-s0x)*(v1-v0))/d;
+  const m12 = ((s2x-s0x)*(u1-u0) - (s1x-s0x)*(u2-u0))/d;
+  const m21 = ((s1y-s0y)*(v2-v0) - (s2y-s0y)*(v1-v0))/d;
+  const m22 = ((s2y-s0y)*(u1-u0) - (s1y-s0y)*(u2-u0))/d;
+  const dx = s0x - m11*u0 - m12*v0, dy = s0y - m21*u0 - m22*v0;
+  const cx = (s0x+s1x+s2x)/3, cyy = (s0y+s1y+s2y)/3, k = 1.03;
+  g.save();
+  g.beginPath();
+  g.moveTo(cx+(s0x-cx)*k, cyy+(s0y-cyy)*k);
+  g.lineTo(cx+(s1x-cx)*k, cyy+(s1y-cyy)*k);
+  g.lineTo(cx+(s2x-cx)*k, cyy+(s2y-cyy)*k);
+  g.closePath(); g.clip();
+  g.transform(m11, m21, m12, m22, dx, dy);
+  g.drawImage(img, 0, 0, 1, 1);
+  g.restore();
+  if (flip) {
+    g.save(); g.beginPath();
+    g.moveTo(s0x,s0y); g.lineTo(s1x,s1y); g.lineTo(s2x,s2y); g.closePath();
+    g.fillStyle = 'rgba(207,68,56,0.5)'; g.fill();
+    g.strokeStyle = '#cf4438'; g.lineWidth = 1.2; g.stroke(); g.restore();
+  }
+}
+function draw3D() {
+  const { w, h } = fitCanvas(c3d, g3);
+  g3.clearRect(0, 0, w, h);
+  projectAll(w, h);
+  const view = $('view').value;
+  const img = TEX[view] || TEX.tex;
+  const inSet = new Set(inside);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  // 光源（视空间）
+  const lx = 0.35, ly = 0.55, lz = 0.76;
+  const order = new Array(NT);
+  for (let f = 0; f < NT; f++) order[f] = f;
+  order.sort((p, q) => {
+    const A = T[3*p], B = T[3*p+1], C = T[3*p+2], D = T[3*q], E2 = T[3*q+1], F2 = T[3*q+2];
+    return (SDZ[A]+SDZ[B]+SDZ[C]) - (SDZ[D]+SDZ[E2]+SDZ[F2]);
+  });
+  for (const f of order) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    const isIn = inSet.has(f);
+    // 视空间法线（用于明暗）
+    let nx = faceN[3*f], ny = faceN[3*f+1], nz = faceN[3*f+2];
+    const x1 = nx*cy - nz*sy, z1 = nx*sy + nz*cy;
+    const y1 = ny*cp - z1*sp, z2 = ny*sp + z1*cp;
+    const nd = Math.max(0, x1*lx + y1*ly + z2*lz);
+    const lum = 0.42 + 0.58*nd;
+    if (!isIn) {
+      g3.beginPath();
+      g3.moveTo(SPX[a], SPY[a]); g3.lineTo(SPX[b], SPY[b]); g3.lineTo(SPX[c], SPY[c]); g3.closePath();
+      g3.fillStyle = 'rgba(214,221,231,' + (0.55 + 0.35*nd) + ')'; g3.fill();
+      g3.strokeStyle = 'rgba(150,163,178,0.35)'; g3.lineWidth = 0.4; g3.stroke();
+      continue;
+    }
+    const flip = uvOK ? uvArea2(f) <= 0 : false;
+    if (view === 'tex' || view === 'chart') {
+      drawTextured(g3, f, flip, img);
+      if (lum < 1) {
+        g3.beginPath();
+        g3.moveTo(SPX[a], SPY[a]); g3.lineTo(SPX[b], SPY[b]); g3.lineTo(SPX[c], SPY[c]); g3.closePath();
+        g3.fillStyle = 'rgba(0,0,0,' + (1-lum).toFixed(3) + ')'; g3.fill();
+      }
+    } else if (view === 'dist') {
+      const r = tri3DArea(f) > 1e-14 ? Math.abs(uvArea2(f))*0.5/tri3DArea(f) : 0;
+      g3.beginPath();
+      g3.moveTo(SPX[a], SPY[a]); g3.lineTo(SPX[b], SPY[b]); g3.lineTo(SPX[c], SPY[c]); g3.closePath();
+      g3.fillStyle = heat(r); g3.fill();
+      if (flip) { g3.strokeStyle = '#cf4438'; g3.lineWidth = 1.2; g3.stroke(); }
+    } else {
+      g3.beginPath();
+      g3.moveTo(SPX[a], SPY[a]); g3.lineTo(SPX[b], SPY[b]); g3.lineTo(SPX[c], SPY[c]); g3.closePath();
+      g3.fillStyle = flip ? 'rgba(207,68,56,0.4)' : 'rgba(255,255,255,0.9)'; g3.fill();
+      g3.strokeStyle = flip ? '#cf4438' : 'rgba(90,102,116,0.6)'; g3.lineWidth = flip ? 1.2 : 0.5; g3.stroke();
+    }
+  }
+  // 闭环 / 多条边界环
+  if (disk && disk.loop) {
+    g3.beginPath();
+    for (let j = 0; j < disk.loop.length; j++) {
+      const v = disk.loop[j];
+      if (j === 0) g3.moveTo(SPX[v], SPY[v]); else g3.lineTo(SPX[v], SPY[v]);
+    }
+    g3.closePath(); g3.strokeStyle = '#2f6fd0'; g3.lineWidth = 3.5; g3.stroke();
+  } else if (disk && disk.cycles) {
+    for (const cyc of disk.cycles) {
+      g3.beginPath();
+      for (let j = 0; j < cyc.pts.length; j++) {
+        const v = cyc.pts[j];
+        if (j === 0) g3.moveTo(SPX[v], SPY[v]); else g3.lineTo(SPX[v], SPY[v]);
+      }
+      if (cyc.clean) g3.closePath();
+      g3.strokeStyle = '#e08a2c'; g3.lineWidth = 3; g3.stroke();
+    }
+  }
+}
+function drawUV() {
+  const { w, h } = fitCanvas(cuv, g2);
+  g2.clearRect(0, 0, w, h);
+  const S = Math.min(w, h)*0.42, ox = w/2, oy = h/2;
+  const px = v => ox + UV[2*v]*S, py = v => oy - UV[2*v+1]*S;
+  const view = $('view').value;
+  const img = TEX[view] || TEX.tex;
+  // 贴图
+  g2.save();
+  g2.transform(2*S, 0, 0, 2*S, ox-S, oy-S);
+  g2.drawImage(img, 0, 0, 1, 1);
+  g2.restore();
+  g2.save();
+  g2.setLineDash([5,4]); g2.strokeStyle = 'rgba(60,70,84,0.5)'; g2.lineWidth = 1;
+  g2.strokeRect(ox-S, oy-S, 2*S, 2*S); g2.restore();
+  if (!uvOK) {
+    g2.fillStyle = '#5b6573'; g2.font = '14px sans-serif'; g2.textAlign = 'center';
+    g2.fillText('当前区域不是拓扑圆盘，无法做 Tutte 嵌入', w/2, h/2);
+    return;
+  }
+  // 闭环外压暗
+  g2.save(); g2.beginPath(); g2.rect(0,0,w,h);
+  for (let j = 0; j < boundaryLoop.length; j++) {
+    const v = boundaryLoop[j];
+    if (j === 0) g2.moveTo(px(v), py(v)); else g2.lineTo(px(v), py(v));
+  }
+  g2.closePath(); g2.fillStyle = 'rgba(250,251,252,0.8)'; g2.fill('evenodd'); g2.restore();
+  // 网格
+  g2.beginPath();
+  for (const f of inside) {
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    g2.moveTo(px(a), py(a)); g2.lineTo(px(b), py(b)); g2.lineTo(px(c), py(c)); g2.closePath();
+  }
+  g2.strokeStyle = 'rgba(255,255,255,0.5)'; g2.lineWidth = 0.5; g2.stroke();
+  // 翻面
+  g2.beginPath();
+  let any = false;
+  for (const f of inside) {
+    if (uvArea2(f) > 0) continue;
+    const a = T[3*f], b = T[3*f+1], c = T[3*f+2];
+    g2.moveTo(px(a), py(a)); g2.lineTo(px(b), py(b)); g2.lineTo(px(c), py(c)); g2.closePath();
+    any = true;
+  }
+  if (any) { g2.fillStyle = 'rgba(207,68,56,0.5)'; g2.fill(); g2.strokeStyle = '#cf4438'; g2.lineWidth = 1.2; g2.stroke(); }
+  // 闭环
+  g2.beginPath();
+  for (let j = 0; j < boundaryLoop.length; j++) {
+    const v = boundaryLoop[j];
+    if (j === 0) g2.moveTo(px(v), py(v)); else g2.lineTo(px(v), py(v));
+  }
+  g2.closePath(); g2.strokeStyle = '#2f6fd0'; g2.lineWidth = 3.5; g2.stroke();
+}
+
+/* ============ 状态 ============ */
+function updateStatus() {
+  if (!V) return;
+  $('sMesh').textContent = `bunny ${NV}v / ${NT}f`;
+  if (!disk) {
+    $('sSub').textContent = '—';
+    $('sChi').textContent = '—'; $('sChi').className = 'v';
+    $('sLoop').textContent = '—';
+  } else {
+    $('sSub').textContent = `${disk.v} / ${disk.e} / ${disk.f}`;
+    $('sChi').textContent = `${disk.chi}` + (disk.chi === 1 ? '（圆盘 ✓）' : '（非圆盘 ✗）');
+    $('sChi').className = 'v ' + (disk.chi === 1 ? 'ok' : 'bad');
+    $('sLoop').textContent = disk.loop ? `${disk.loop.length} / ${curHops}` : `— / ${curHops}`;
+  }
+  const shape = $('shape').value, convex = CONVEX[shape];
+  const condOK = negW === 0 && uvOK;
+  $('sCond').textContent = !uvOK ? '—' : (condOK ? '满足（全正权重）' : `破坏（${negW} 条非正权重）`);
+  $('sCond').className = 'v ' + (condOK ? 'ok' : 'bad');
+  let flips = 0, aUv = 0, a3d = 0;
+  if (uvOK) for (const f of inside) {
+    const s = uvArea2(f);
+    if (s <= 0) flips++;
+    aUv += Math.abs(s)*0.5; a3d += tri3DArea(f);
+  }
+  $('sFlip').textContent = uvOK ? `${flips} / ${inside.length}` : '—';
+  $('sFlip').className = 'v ' + (flips === 0 ? 'ok' : 'bad');
+  $('sArea').textContent = (uvOK && a3d > 0) ? (aUv/a3d*100).toFixed(1) + '%' : '—';
+  let verdict, cls;
+  if (!disk || !disk.ok) { verdict = '非圆盘：定理前提不成立'; cls = 'bad'; }
+  else if (!convex) { verdict = '边界非凸：可能翻面'; cls = 'bad'; }
+  else if (negW > 0) { verdict = '权重非正：可能翻面'; cls = 'bad'; }
+  else if (flips > 0) { verdict = '前提成立，尚未收敛'; cls = 'warn'; }
+  else { verdict = '单射成立 ✓'; cls = 'ok'; }
+  $('sVerdict').textContent = verdict;
+  $('sVerdict').className = 'v ' + cls;
+}
+
+/* ============ 种子点 ============ */
+const SEED_PRED = {
+  ear:   v =>  v[1],
+  nose:  v =>  v[0],
+  tail:  v => -v[0],
+  back:  v =>  v[2],
+  belly: v => -v[1]
+};
+function seedVertex() {
+  const pred = SEED_PRED[$('seed').value] || SEED_PRED.ear;
+  let best = 0, bv = -Infinity;
+  for (let v = 0; v < NV; v++) { const s = pred([V[3*v], V[3*v+1], V[3*v+2]]); if (s > bv) { bv = s; best = v; } }
+  return best;
+}
+let curHops = 10;
+function rebuildRegion(resetUV) {
+  if (!V) return;
+  const seed = seedVertex();
+  const r = findDisk(seed, curHops, $('fallback').checked);
+  disk = r.disk;
+  const tried = r.tried;
+  if (!disk) {
+    inside = []; interiorList = []; boundaryLoop = []; uvOK = false;
+    const msg = `半径 ${curHops} 切出来的区域 χ = ${tried.chi}、边界环 ${tried.cycles.length} 条 —— 不是拓扑圆盘。
+      已尝试回退半径仍未找到合法圆盘（种子点附近可能有洞或把手）。`;
+    $('msg').innerHTML = '<span style="color:var(--bad)">' + msg + '</span>';
+    return;
+  }
+  inside = disk.inside;
+  boundaryLoop = disk.loop;
+  const bset = new Set(boundaryLoop);
+  const vset = new Set();
+  for (const f of inside) { vset.add(T[3*f]); vset.add(T[3*f+1]); vset.add(T[3*f+2]); }
+  interiorList = [...vset].filter(v => !bset.has(v));
+  uvOK = true;
+  if (UV.length !== NV*2) UV = new Float64Array(NV*2);
+  rebuildWeights();
+  setBoundaryUV();
+  resetInterior();
+  let note = `区域：${disk.v} 顶点 / ${disk.e} 边 / ${disk.f} 面，χ = 1，闭环 ${boundaryLoop.length} 个顶点。`;
+  if (r.fallback > 0) note += ` （半径 ${curHops} 会绕过洞，已回退到 ${r.hops}）`;
+  $('msg').innerHTML = '<span style="color:var(--ok)">' + note + '</span>';
+}
+
+/* ============ 交互 ============ */
+$('seed').addEventListener('change', () => rebuildRegion(true));
+$('hop').addEventListener('input', e => { curHops = +e.target.value; $('hopVal').textContent = curHops; rebuildRegion(true); });
+$('shape').addEventListener('change', () => { if (uvOK) { setBoundaryUV(); resetInterior(); } });
+$('weight').addEventListener('change', e => { wMode = e.target.value; if (uvOK) { rebuildWeights(); resetInterior(); } });
+$('fallback').addEventListener('change', () => rebuildRegion(true));
+$('reset').addEventListener('click', () => { if (uvOK) resetInterior(); else rebuildRegion(true); });
+$('auto').addEventListener('click', e => { autoRot = !autoRot; e.target.textContent = '自动旋转：' + (autoRot ? '开' : '关'); });
+$('fit').addEventListener('click', () => { yaw = 0.6; pitch = 0.25; zoom = 1.0; });
+let drag = null;
+c3d.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; c3d.setPointerCapture(e.pointerId); });
+c3d.addEventListener('pointermove', e => {
+  if (!drag) return;
+  yaw += (e.clientX - drag.x)*0.008;
+  pitch = Math.max(-1.5, Math.min(1.5, pitch + (e.clientY - drag.y)*0.008));
+  drag = { x: e.clientX, y: e.clientY };
+});
+c3d.addEventListener('pointerup', () => { drag = null; });
+c3d.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(0.5, Math.min(3, zoom*(e.deltaY > 0 ? 0.92 : 1.08))); }, { passive: false });
+
+/* ============ 主循环 ============ */
+function frame() {
+  if (autoRot) yaw += 0.005;
+  if (uvOK && !converged) { for (let s = 0; s < 3 && !converged; s++) sweep(); }
+  draw3D(); drawUV(); updateStatus();
+  requestAnimationFrame(frame);
+}
+
+/* ============ 启动 ============ */
+// URL 参数可复现某个状态：?seed=ear&hop=10&shape=circle&weight=mvc&view=tex&fb=1&yaw=0.6&pitch=0.25&zoom=1
+function applyQuery() {
+  const Q = new URLSearchParams(location.search);
+  const set = (id, key) => { const v = Q.get(key); if (v !== null) $(id).value = v; };
+  set('seed', 'seed'); set('hop', 'hop'); set('shape', 'shape'); set('weight', 'weight'); set('view', 'view');
+  if (Q.get('fb') !== null) $('fallback').checked = Q.get('fb') !== '0';
+  if (Q.get('yaw') !== null) yaw = +Q.get('yaw');
+  if (Q.get('pitch') !== null) pitch = +Q.get('pitch');
+  if (Q.get('zoom') !== null) zoom = +Q.get('zoom');
+  if (Q.get('rot') !== null) autoRot = Q.get('rot') !== '0';
+}
+fetch('model/bunny_small.obj')
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+  .then(txt => {
+    const p = parseOBJ(txt);
+    V = p.V; T = p.T; NV = V.length/3;
+    normalize();
+    buildTopology();
+    SPX = new Float64Array(NV); SPY = new Float64Array(NV); SDZ = new Float64Array(NV);
+    UV = new Float64Array(NV*2);
+    applyQuery();
+    curHops = +$('hop').value;
+    $('hopVal').textContent = curHops;
+    rebuildRegion(true);
+    frame();
+  })
+  .catch(e => {
+    $('msg').innerHTML = '<span style="color:var(--bad)">模型载入失败：' + e.message +
+      '。本页需要通过 http 打开（file:// 下 fetch 会被浏览器拦截），可在目录下运行 <code>python -m http.server</code>。</span>';
+  });
+})();
+</script>
+</body>
+</html>

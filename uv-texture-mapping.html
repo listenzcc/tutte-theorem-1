@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UV 贴图：任意图片摊平到曲面</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e3e7ec; --ink:#1b2027; --ink2:#5b6573;
+    --accent:#2f6fd0; --ok:#17864f; --bad:#cf4438; --warn:#b8770f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1140px;margin:0 auto;padding:22px 18px 60px}
+  h1{font-size:21px;margin:0 0 4px;letter-spacing:.2px}
+  .sub{color:var(--ink2);font-size:13px;margin:0 0 16px;line-height:1.7}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:15px 17px;margin-bottom:14px}
+  .card h2{font-size:14px;margin:0 0 10px}
+  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:13px}
+  .ctl label{display:block;font-size:12px;color:var(--ink2);margin-bottom:5px}
+  .ctl label .val{color:var(--accent);font-weight:600}
+  select,input[type=text]{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:13px;color:var(--ink)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  input[type=file]{width:100%;font-size:12px;color:var(--ink2)}
+  .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:11px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:13px;cursor:pointer}
+  button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:920px){.stage{grid-template-columns:1fr}}
+  canvas{width:100%;height:440px;display:block;background:#fff;border:1px solid var(--line);border-radius:8px;touch-action:none}
+  .cap{font-size:12px;color:var(--ink2);margin:7px 0 0;line-height:1.65}
+  .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px;margin-top:13px}
+  .st{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fafbfc}
+  .st .k{font-size:11px;color:var(--ink2)}
+  .st .v{font-size:14px;font-weight:600;margin-top:2px;word-break:break-all}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  .note{font-size:13px;line-height:1.85;color:var(--ink2);margin:0}
+  .note b{color:var(--ink)}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
+  .msg{font-size:12px;margin-top:8px;min-height:16px}
+  .thumb{width:64px;height:64px;border:1px solid var(--line);border-radius:6px;object-fit:cover;background:#fafbfc}
+  ul{margin:8px 0 0;padding-left:20px} li{margin-bottom:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>任意图片当贴图：UV 摊平 → 贴回 3D 曲面</h1>
+  <p class="sub">
+    右边是贴图和 UV 空间，左边是 3D 曲面。曲面上的一条闭环被钉到右图的某个形状上，闭环内部用 Tutte 嵌入（凸组合）解出 UV，
+    然后把右图那张图片按 UV 逐三角形贴回左边。<b>图片可以换成你自己的</b>：上传本地文件，或粘贴一个图片 URL。
+  </p>
+
+  <div class="card">
+    <h2>1 · 选一张贴图</h2>
+    <div class="controls">
+      <div class="ctl">
+        <label>上传本地图片</label>
+        <input type="file" id="file" accept="image/*" />
+      </div>
+      <div class="ctl">
+        <label>或粘贴图片 URL</label>
+        <input type="text" id="url" placeholder="https://picsum.photos/512" />
+      </div>
+      <div class="ctl">
+        <label>内置贴图</label>
+        <select id="preset">
+          <option value="chart">色卡标定图（看畸变最清楚）</option>
+          <option value="checker">UV 贴图 4×4</option>
+          <option value="rings">同心圆 + 网格</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>贴图铺法</label>
+        <select id="tile">
+          <option value="stretch">拉伸填满 UV 方框</option>
+          <option value="tile2">平铺 2×2</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <button id="load">载入 URL</button>
+      <button class="ghost" id="fit">让贴图铺满右图</button>
+      <img id="thumb" class="thumb" alt="贴图缩略图" />
+      <span id="msg" class="msg"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2 · 调摊平</h2>
+    <div class="controls">
+      <div class="ctl">
+        <label>闭环位置<span class="val" id="lkVal">ring 8 / 10</span></label>
+        <input type="range" id="loopK" min="4" max="10" step="1" value="8" />
+      </div>
+      <div class="ctl">
+        <label>闭环钉成的边界形状</label>
+        <select id="shape">
+          <option value="circle">圆（凸）</option>
+          <option value="square">正方形（凸）</option>
+          <option value="star">五角星（非凸）</option>
+          <option value="ell">L 形（非凸）</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>凸组合权重</label>
+        <select id="weight">
+          <option value="mvc">均值坐标 MVC（恒正）</option>
+          <option value="uniform">均匀 1/deg</option>
+          <option value="cotan">余切 cotan（钝角变负）</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <label>曲面起伏程度<span class="val" id="bumpVal">1.00</span></label>
+        <input type="range" id="bump" min="0" max="2.5" step="0.05" value="1.0" />
+      </div>
+    </div>
+    <div class="row">
+      <button id="reset">重新松弛</button>
+      <button class="ghost" id="auto">自动旋转：开</button>
+      <button class="ghost" id="wire">曲面网格线：关</button>
+      <span style="font-size:12px;color:var(--ink2)">左图可拖动旋转，滚轮缩放</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div>
+      <canvas id="c3d"></canvas>
+      <p class="cap"><b>左：3D 曲面 + 贴图</b>。蓝色粗线是闭环；闭环外的部分画成淡灰线框。<br />
+        贴图是逐三角形仿射贴上去的（<code>drawImage</code> + 三角形裁剪），所以三角形内部是仿射变换、跨三角形连续。</p>
+    </div>
+    <div>
+      <canvas id="cuv"></canvas>
+      <p class="cap"><b>右：UV 空间 + 贴图</b>。虚线方框是 uv ∈ [−1,1]²，对应整张图片；闭环的彩色多边形内部才是真正被用到的区域。<br />
+        红色三角形 = 翻面（有向面积 ≤ 0），贴上贴图后在左边就是打结 / 撕裂。</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="status">
+      <div class="st"><div class="k">贴图</div><div class="v" id="sTex">—</div></div>
+      <div class="st"><div class="k">凸组合前提</div><div class="v" id="sCond">—</div></div>
+      <div class="st"><div class="k">边界凸性</div><div class="v" id="sConv">—</div></div>
+      <div class="st"><div class="k">翻面三角形</div><div class="v" id="sFlip">—</div></div>
+      <div class="st"><div class="k">面积畸变 ΣUV/Σ3D</div><div class="v" id="sArea">—</div></div>
+      <div class="st"><div class="k">定理结论</div><div class="v" id="sVerdict">—</div></div>
+    </div>
+    <p class="note" style="margin-top:12px">
+      <b>怎么看出畸变：</b>换成"色卡标定图"，看左边曲面上的方格被怎么拉伸——UV 摊平只能做到单射（不翻面），
+      做不到保形或保面积。权重换成<b>余切</b>并把<b>起伏拉大</b>，或者把边界换成<b>五角星 / L 形</b>，就会看到红色翻面，
+      贴图在曲面上直接打成结。
+    </p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ================= 网格：径向圆盘 ================= */
+const NR = 10, NS = 36, NV = 1 + NR * NS;
+const P = new Float64Array(NV * 3);
+const UV = new Float64Array(NV * 2);
+const ringOf = new Int32Array(NV);
+for (let v = 1; v < NV; v++) ringOf[v] = 1 + Math.floor((v - 1) / NS);
+const vid = (i, j) => (i === 0 ? 0 : 1 + (i - 1) * NS + ((j % NS) + NS) % NS);
+
+let bumpAmp = 1.0;
+function heightAt(x, z) {
+  const A = 0.55 * bumpAmp;
+  return   A      * Math.exp(-((x - 0.35) ** 2 + (z - 0.15) ** 2) / 0.10)
+       +  0.80*A * Math.exp(-((x + 0.30) ** 2 + (z + 0.35) ** 2) / 0.07)
+       -  0.55*A * Math.exp(-((x + 0.10) ** 2 + (z - 0.42) ** 2) / 0.06)
+       +  0.40*A * Math.sin(3.0 * x) * Math.cos(3.0 * z);
+}
+function buildPositions() {
+  P[0] = 0; P[1] = heightAt(0, 0); P[2] = 0;
+  for (let i = 1; i <= NR; i++) {
+    const r = i / NR;
+    for (let j = 0; j < NS; j++) {
+      const th = 2 * Math.PI * j / NS;
+      const x = r * Math.cos(th), z = r * Math.sin(th);
+      const id = vid(i, j);
+      P[3*id] = x; P[3*id+1] = heightAt(x, z); P[3*id+2] = z;
+    }
+  }
+}
+const F = [];
+const adj = Array.from({ length: NV }, () => []);
+function buildTriangles() {
+  F.length = 0;
+  for (let i = 1; i <= NR; i++) {
+    for (let j = 0; j < NS; j++) {
+      const j2 = (j + 1) % NS;
+      if (i === 1) F.push([0, vid(1, j), vid(1, j2)]);
+      else {
+        const a = vid(i-1, j), b = vid(i-1, j2), c = vid(i, j2), d = vid(i, j);
+        F.push([a, d, c]); F.push([a, c, b]);   // 与中心扇面保持同一绕向（(x,z) 上 CCW）
+      }
+    }
+  }
+  for (const t of F) { adj[t[0]].push(t[1], t[2]); adj[t[1]].push(t[2], t[0]); adj[t[2]].push(t[0], t[1]); }
+}
+
+/* ================= 闭环 / 内部顶点 / 活动三角形 ================= */
+let loopK = 8, boundary = [], interior = [], activeTris = [], outsideTris = [];
+function setLoop(k) {
+  loopK = k;
+  boundary = []; for (let j = 0; j < NS; j++) boundary.push(vid(k, j));
+  interior = [0]; for (let i = 1; i < k; i++) for (let j = 0; j < NS; j++) interior.push(vid(i, j));
+  activeTris = []; outsideTris = [];
+  for (let idx = 0; idx < F.length; idx++) {
+    const t = F[idx];
+    const inside = ringOf[t[0]] <= k && ringOf[t[1]] <= k && ringOf[t[2]] <= k;
+    (inside ? activeTris : outsideTris).push(idx);
+  }
+}
+
+/* ================= 目标边界形状（按闭环 3D 弧长参数化） ================= */
+const SHAPES = {
+  circle: null,
+  square: [[1,1],[-1,1],[-1,-1],[1,-1]],
+  star: (function(){ const p=[]; for (let i=0;i<10;i++){ const R=(i%2?0.42:1.0), a=-Math.PI/2 + i*Math.PI/5; p.push([R*Math.cos(a), R*Math.sin(a)]); } return p; })(),
+  ell: [[1,1],[-0.15,1],[-0.15,-0.2],[-1,-0.2],[-1,-1],[1,-1]]
+};
+const CONVEX = { circle: true, square: true, star: false, ell: false };
+function shapePoint(name, t) {
+  if (name === 'circle') { const a = 2 * Math.PI * t; return [Math.cos(a), Math.sin(a)]; }
+  const pts = SHAPES[name], n = pts.length, seg = [];
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const l = Math.hypot(b[0]-a[0], b[1]-a[1]); seg.push(l); total += l;
+  }
+  let d = t * total;
+  for (let i = 0; i < n; i++) {
+    if (d <= seg[i] || i === n - 1) {
+      const s = seg[i] > 0 ? Math.min(d / seg[i], 1) : 0;
+      const a = pts[i], b = pts[(i + 1) % n];
+      return [a[0] + (b[0]-a[0]) * s, a[1] + (b[1]-a[1]) * s];
+    }
+    d -= seg[i];
+  }
+  return pts[0];
+}
+function setBoundaryUV(shapeName) {
+  const n = boundary.length, cum = [0];
+  let total = 0;
+  for (let j = 0; j < n; j++) {
+    const a = boundary[j], b = boundary[(j + 1) % n];
+    total += Math.hypot(P[3*b]-P[3*a], P[3*b+1]-P[3*a+1], P[3*b+2]-P[3*a+2]);
+    cum.push(total);
+  }
+  for (let j = 0; j < n; j++) {
+    const t = total > 0 ? cum[j] / total : j / n;
+    const q = shapePoint(shapeName, t), v = boundary[j];
+    UV[2*v] = q[0]; UV[2*v+1] = q[1];
+  }
+}
+function resetInterior() {
+  for (const i of interior) {
+    UV[2*i]   = P[3*i]   * 0.22 + (Math.random() - 0.5) * 0.05;
+    UV[2*i+1] = P[3*i+2] * 0.22 + (Math.random() - 0.5) * 0.05;
+  }
+  iter = 0; converged = false;
+}
+
+/* ================= 权重 ================= */
+let wMode = 'mvc', edgeMap = new Map(), rows = [], negW = 0;
+const ekey = (i, j) => (i < j ? i * NV + j : j * NV + i);
+function angAt(v, p, q) {
+  const ux = P[3*p]-P[3*v], uy = P[3*p+1]-P[3*v+1], uz = P[3*p+2]-P[3*v+2];
+  const wx = P[3*q]-P[3*v], wy = P[3*q+1]-P[3*v+1], wz = P[3*q+2]-P[3*v+2];
+  const nu = Math.hypot(ux, uy, uz), nw = Math.hypot(wx, wy, wz);
+  if (nu < 1e-12 || nw < 1e-12) return Math.PI / 3;
+  const c = Math.max(-1, Math.min(1, (ux*wx + uy*wy + uz*wz) / (nu * nw)));
+  return Math.acos(c);
+}
+function addEdge(i, j, angI, angJ, angOpp) {
+  const k = ekey(i, j);
+  let e = edgeMap.get(k);
+  if (!e) {
+    e = { i: Math.min(i, j), j: Math.max(i, j), tanI: 0, tanJ: 0, cot: 0,
+          len: Math.hypot(P[3*i]-P[3*j], P[3*i+1]-P[3*j+1], P[3*i+2]-P[3*j+2]) };
+    edgeMap.set(k, e);
+  }
+  const ti = Math.tan(Math.min(angI, Math.PI * 0.999) / 2);
+  const tj = Math.tan(Math.min(angJ, Math.PI * 0.999) / 2);
+  if (i === e.i) { e.tanI += ti; e.tanJ += tj; } else { e.tanJ += ti; e.tanI += tj; }
+  const s = Math.sin(angOpp);
+  e.cot += Math.abs(s) < 1e-9 ? 0 : Math.cos(angOpp) / s;
+}
+function rebuildWeights() {
+  edgeMap.clear();
+  for (const t of F) {
+    const [a, b, c] = t;
+    const A = angAt(a, b, c), B = angAt(b, c, a), C = angAt(c, a, b);
+    addEdge(a, b, A, B, C); addEdge(b, c, B, C, A); addEdge(c, a, C, A, B);
+  }
+  rows = new Array(NV); negW = 0;
+  for (const i of interior) {
+    const js = adj[i], ws = [];
+    for (const j of js) {
+      const e = edgeMap.get(ekey(i, j));
+      let w = 1;
+      if (wMode === 'cotan') w = e.cot;
+      else if (wMode === 'mvc') w = (i === e.i ? e.tanI : e.tanJ) / Math.max(e.len, 1e-9);
+      if (!(w > 0)) negW++;
+      ws.push(w);
+    }
+    rows[i] = { js, ws };
+  }
+}
+let iter = 0, converged = false;
+function sweep() {
+  let maxd = 0;
+  for (const i of interior) {
+    const r = rows[i]; if (!r) continue;
+    let sx = 0, sy = 0, sw = 0;
+    for (let k = 0; k < r.js.length; k++) {
+      const w = r.ws[k], j = r.js[k];
+      sx += w * UV[2*j]; sy += w * UV[2*j+1]; sw += w;
+    }
+    if (Math.abs(sw) < 1e-9) continue;
+    const nx = sx / sw, ny = sy / sw;
+    const d = Math.hypot(nx - UV[2*i], ny - UV[2*i+1]); if (d > maxd) maxd = d;
+    UV[2*i] = nx; UV[2*i+1] = ny;
+  }
+  iter++;
+  if (maxd < 1e-7) converged = true;
+}
+
+/* ================= 贴图 ================= */
+// uv ∈ [-1,1]² 映射到贴图坐标 (s,t) ∈ [0,1]²；s = (u+1)/2, t = (1-v)/2
+const sOf = v => (UV[2*v] + 1) / 2;
+const tOf = v => (1 - UV[2*v+1]) / 2;
+
+function makeChart() {
+  const N = 512, c = document.createElement('canvas'); c.width = N; c.height = N;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, N, N);
+  const n = 8, cell = N / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const h = 360 * i / n, l = 40 + 40 * j / n;
+    g.fillStyle = `hsl(${h},72%,${l}%)`;
+    g.fillRect(i * cell, j * cell, cell, cell);
+  }
+  g.strokeStyle = 'rgba(20,24,32,0.55)'; g.lineWidth = 2;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath(); g.moveTo(i*cell, 0); g.lineTo(i*cell, N); g.stroke();
+    g.beginPath(); g.moveTo(0, i*cell); g.lineTo(N, i*cell); g.stroke();
+  }
+  g.strokeStyle = '#111820'; g.lineWidth = 6;
+  g.strokeRect(3, 3, N - 6, N - 6);
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  g.beginPath(); g.arc(N/2, N/2, N*0.17, 0, 2*Math.PI); g.fill();
+  g.fillStyle = '#111820'; g.font = 'bold 96px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('UV', N/2, N/2);
+  g.font = 'bold 40px sans-serif';
+  const marks = [['A', 34, 44], ['B', N-34, 44], ['C', 34, N-40], ['D', N-34, N-40]];
+  for (const [ch, x, y] of marks) {
+    g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 4;
+    g.beginPath(); g.arc(x, y, 26, 0, 2*Math.PI); g.fill(); g.stroke();
+    g.fillStyle = '#111820'; g.fillText(ch, x, y);
+  }
+  return c;
+}
+/* UV checker：4×4 格，沿 u 走色相、沿 v 走明度。
+   与 bunny-tutte.html / render-bunny-figs.py 的 uv_checker() 同一套参数。 */
+function makeChecker() {
+  const N = 512, c = document.createElement('canvas'); c.width = N; c.height = N;
+  const g = c.getContext('2d');
+  const n = 4, cell = N / n;
+  const BASE_H = 10, HUE_SPAN = 200, SAT = 0.42, L_HI = 0.82, L_LO = 0.52;
+  for (let j = 0; j < n; j++) {
+    const lBase = L_HI - (L_HI - L_LO) * j / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const dark = ((i + j) % 2) === 1;
+      const hue = BASE_H + HUE_SPAN * i / (n - 1);
+      const l = lBase - (dark ? 0.07 : 0);
+      g.fillStyle = `hsl(${hue},${SAT*100}%,${l*100}%)`;
+      g.fillRect(i*cell, j*cell, cell, cell);
+      const s2 = Math.round(cell * 0.46), o = Math.floor((cell - s2) / 2);
+      g.fillStyle = `hsl(${hue},${(SAT+0.06)*100}%,${(l + (dark ? 0.11 : -0.13))*100}%)`;
+      g.fillRect(i*cell + o, j*cell + o, s2, s2);
+    }
+  }
+  for (let k = 0; k <= n; k++) {
+    const p = Math.round(k * cell), main = (k % 2 === 0), w = main ? 3 : 2, q = p - (w >> 1);
+    g.fillStyle = main ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.38)';
+    g.fillRect(q, 0, w, N);
+    g.fillRect(0, q, N, w);
+  }
+  return c;
+}
+function makeRings() {
+  const N = 512, c = document.createElement('canvas'); c.width = N; c.height = N;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fdfdfd'; g.fillRect(0, 0, N, N);
+  for (let r = N/2; r > 0; r -= N/22) {
+    g.beginPath(); g.arc(N/2, N/2, r, 0, 2*Math.PI);
+    g.strokeStyle = `hsl(${(r / (N/2)) * 300},70%,50%)`; g.lineWidth = 6; g.stroke();
+  }
+  g.strokeStyle = 'rgba(20,24,32,0.5)'; g.lineWidth = 2;
+  for (let i = 0; i <= 8; i++) {
+    const p = i * N / 8;
+    g.beginPath(); g.moveTo(p, 0); g.lineTo(p, N); g.stroke();
+    g.beginPath(); g.moveTo(0, p); g.lineTo(N, p); g.stroke();
+  }
+  g.strokeStyle = '#111820'; g.lineWidth = 8; g.strokeRect(4, 4, N - 8, N - 8);
+  return c;
+}
+const PRESETS = { chart: makeChart, checker: makeChecker, rings: makeRings };
+
+let texImg = null, texLabel = '—', tiled = false;
+function setTexture(src, label) {
+  texImg = src; texLabel = label;
+  const el = document.getElementById('sTex');
+  if (el) el.textContent = label;
+  const th = document.getElementById('thumb');
+  if (th) {
+    let s = '';
+    if (src && typeof src.src === 'string') s = src.src;                       // HTMLImageElement
+    else if (src && typeof src.toDataURL === 'function') s = src.toDataURL();   // 内置 canvas 贴图
+    if (s) th.src = s; else th.removeAttribute('src');
+  }
+}
+function loadFromURL(u, label) {
+  const msg = document.getElementById('msg');
+  if (!u) { msg.textContent = '请先填一个图片地址'; msg.style.color = 'var(--bad)'; return; }
+  msg.textContent = '载入中…'; msg.style.color = 'var(--ink2)';
+  const img = new Image();
+  img.onload = () => { setTexture(img, (label || 'URL') + ' · ' + img.naturalWidth + '×' + img.naturalHeight);
+                       msg.textContent = '载入成功'; msg.style.color = 'var(--ok)'; };
+  img.onerror = () => { msg.textContent = '载入失败：链接失效、跨域或不是图片'; msg.style.color = 'var(--bad)'; };
+  img.src = u;
+}
+
+/* ================= 画布 ================= */
+const c3d = document.getElementById('c3d'), cuv = document.getElementById('cuv');
+const g3 = c3d.getContext('2d'), g2 = cuv.getContext('2d');
+let yaw = 0.6, pitch = 0.55, zoom = 1.0, autoRot = true, showWire = false;
+const SX = new Float64Array(NV), SY = new Float64Array(NV), DZ = new Float64Array(NV);
+
+function fitCanvas(cv, ctx) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+function projectAll(w, h) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const scale = Math.min(w, h) * 0.40 * zoom, ox = w / 2, oy = h / 2 + h * 0.06;
+  for (let v = 0; v < NV; v++) {
+    const x = P[3*v], y = P[3*v+1], z = P[3*v+2];
+    const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
+    const y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+    SX[v] = ox + x1 * scale; SY[v] = oy - y1 * scale; DZ[v] = z2;
+  }
+}
+function uvArea2(t) {
+  const [a, b, c] = t;
+  return (UV[2*b]-UV[2*a]) * (UV[2*c+1]-UV[2*a+1]) - (UV[2*c]-UV[2*a]) * (UV[2*b+1]-UV[2*a+1]);
+}
+function tri3DArea(t) {
+  const [a, b, c] = t;
+  const ux = P[3*b]-P[3*a], uy = P[3*b+1]-P[3*a+1], uz = P[3*b+2]-P[3*a+2];
+  const wx = P[3*c]-P[3*a], wy = P[3*c+1]-P[3*a+1], wz = P[3*c+2]-P[3*a+2];
+  return 0.5 * Math.hypot(uy*wz - uz*wy, uz*wx - ux*wz, ux*wy - uy*wx);
+}
+
+// 逐三角形仿射贴图：把贴图坐标 (s,t) 仿射到屏幕，配合三角形裁剪
+function drawTextured(g, t, flip) {
+  if (!texImg) return;
+  const [a, b, c] = t;
+  const s0x = SX[a], s0y = SY[a], s1x = SX[b], s1y = SY[b], s2x = SX[c], s2y = SY[c];
+  const u0 = sOf(a), v0 = tOf(a), u1 = sOf(b), v1 = tOf(b), u2 = sOf(c), v2 = tOf(c);
+  const d = (u1-u0)*(v2-v0) - (u2-u0)*(v1-v0);
+  if (Math.abs(d) < 1e-14) return;
+  const m11 = ((s1x-s0x)*(v2-v0) - (s2x-s0x)*(v1-v0)) / d;
+  const m12 = ((s2x-s0x)*(u1-u0) - (s1x-s0x)*(u2-u0)) / d;
+  const m21 = ((s1y-s0y)*(v2-v0) - (s2y-s0y)*(v1-v0)) / d;
+  const m22 = ((s2y-s0y)*(u1-u0) - (s1y-s0y)*(u2-u0)) / d;
+  const dx = s0x - m11*u0 - m12*v0, dy = s0y - m21*u0 - m22*v0;
+  const cx = (s0x+s1x+s2x)/3, cyy = (s0y+s1y+s2y)/3, k = 1.02;   // 轻微外扩，消除三角形间的抗锯齿缝
+  g.save();
+  g.beginPath();
+  g.moveTo(cx + (s0x-cx)*k, cyy + (s0y-cyy)*k);
+  g.lineTo(cx + (s1x-cx)*k, cyy + (s1y-cyy)*k);
+  g.lineTo(cx + (s2x-cx)*k, cyy + (s2y-cyy)*k);
+  g.closePath(); g.clip();
+  g.transform(m11, m21, m12, m22, dx, dy);
+  if (tiled) {
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) g.drawImage(texImg, i*0.5, j*0.5, 0.5, 0.5);
+  } else {
+    g.drawImage(texImg, 0, 0, 1, 1);
+  }
+  if (flip) { g.fillStyle = 'rgba(207,68,56,0.45)'; g.fillRect(0, 0, 1, 1); }
+  g.restore();
+  if (flip) {
+    g.save(); g.beginPath();
+    g.moveTo(s0x, s0y); g.lineTo(s1x, s1y); g.lineTo(s2x, s2y); g.closePath();
+    g.strokeStyle = '#cf4438'; g.lineWidth = 1.4; g.stroke(); g.restore();
+  }
+}
+function draw3D() {
+  const { w, h } = fitCanvas(c3d, g3);
+  g3.clearRect(0, 0, w, h);
+  projectAll(w, h);
+  const order = activeTris.concat(outsideTris).slice().sort((p, q) => {
+    const A = F[p], B = F[q];
+    return (DZ[A[0]]+DZ[A[1]]+DZ[A[2]]) - (DZ[B[0]]+DZ[B[1]]+DZ[B[2]]);
+  });
+  for (const idx of order) {
+    const t = F[idx];
+    const isActive = ringOf[t[0]] <= loopK && ringOf[t[1]] <= loopK && ringOf[t[2]] <= loopK;
+    if (!isActive) {
+      g3.beginPath();
+      g3.moveTo(SX[t[0]], SY[t[0]]); g3.lineTo(SX[t[1]], SY[t[1]]); g3.lineTo(SX[t[2]], SY[t[2]]); g3.closePath();
+      g3.fillStyle = 'rgba(238,242,247,0.55)'; g3.fill();
+      g3.strokeStyle = 'rgba(150,163,178,0.45)'; g3.lineWidth = 0.5; g3.stroke();
+      continue;
+    }
+    const flip = uvArea2(t) <= 0;
+    drawTextured(g3, t, flip);
+    if (showWire || flip) {
+      g3.beginPath();
+      g3.moveTo(SX[t[0]], SY[t[0]]); g3.lineTo(SX[t[1]], SY[t[1]]); g3.lineTo(SX[t[2]], SY[t[2]]); g3.closePath();
+      g3.strokeStyle = flip ? '#cf4438' : 'rgba(255,255,255,0.45)';
+      g3.lineWidth = flip ? 1.4 : 0.5; g3.stroke();
+    }
+  }
+  g3.beginPath();
+  for (let j = 0; j < boundary.length; j++) {
+    const v = boundary[j];
+    if (j === 0) g3.moveTo(SX[v], SY[v]); else g3.lineTo(SX[v], SY[v]);
+  }
+  g3.closePath(); g3.strokeStyle = '#2f6fd0'; g3.lineWidth = 3; g3.stroke();
+}
+function drawUV() {
+  const { w, h } = fitCanvas(cuv, g2);
+  g2.clearRect(0, 0, w, h);
+  const S = Math.min(w, h) * 0.40, ox = w / 2, oy = h / 2;
+  const px = v => ox + UV[2*v] * S, py = v => oy - UV[2*v+1] * S;
+
+  // 贴图：uv ∈ [-1,1]² → 面板正方形
+  if (texImg) {
+    g2.save();
+    g2.transform(2*S, 0, 0, 2*S, ox - S, oy - S);
+    if (tiled) { for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) g2.drawImage(texImg, i*0.5, j*0.5, 0.5, 0.5); }
+    else g2.drawImage(texImg, 0, 0, 1, 1);
+    g2.restore();
+  }
+  // uv 方框
+  g2.save();
+  g2.setLineDash([5, 4]); g2.strokeStyle = 'rgba(60,70,84,0.55)'; g2.lineWidth = 1;
+  g2.strokeRect(ox - S, oy - S, 2*S, 2*S);
+  g2.restore();
+  // 闭环多边形之外压暗（even-odd）
+  g2.save();
+  g2.beginPath();
+  g2.rect(0, 0, w, h);
+  for (let j = 0; j < boundary.length; j++) {
+    const v = boundary[j];
+    if (j === 0) g2.moveTo(px(v), py(v)); else g2.lineTo(px(v), py(v));
+  }
+  g2.closePath();
+  g2.fillStyle = 'rgba(250,251,252,0.78)';
+  g2.fill('evenodd');
+  g2.restore();
+  // 三角网格 + 翻面
+  for (const idx of activeTris) {
+    const t = F[idx], s = uvArea2(t);
+    g2.beginPath();
+    g2.moveTo(px(t[0]), py(t[0])); g2.lineTo(px(t[1]), py(t[1])); g2.lineTo(px(t[2]), py(t[2])); g2.closePath();
+    if (s <= 0) { g2.fillStyle = 'rgba(207,68,56,0.45)'; g2.fill(); g2.strokeStyle = '#cf4438'; g2.lineWidth = 1.3; }
+    else { g2.strokeStyle = 'rgba(255,255,255,0.55)'; g2.lineWidth = 0.5; }
+    g2.stroke();
+  }
+  g2.beginPath();
+  for (let j = 0; j < boundary.length; j++) {
+    const v = boundary[j];
+    if (j === 0) g2.moveTo(px(v), py(v)); else g2.lineTo(px(v), py(v));
+  }
+  g2.closePath(); g2.strokeStyle = '#2f6fd0'; g2.lineWidth = 3; g2.stroke();
+}
+
+/* ================= 状态 ================= */
+const $ = id => document.getElementById(id);
+function updateStatus() {
+  let flips = 0, aUv = 0, a3d = 0;
+  for (const idx of activeTris) {
+    const t = F[idx], s = uvArea2(t);
+    if (s <= 0) flips++;
+    aUv += Math.abs(s) * 0.5; a3d += tri3DArea(t);
+  }
+  const shape = $('shape').value, convex = CONVEX[shape];
+  const condOK = negW === 0;
+  $('sTex').textContent = texLabel;
+  $('sCond').textContent = condOK ? '满足（全正权重）' : `破坏（${negW} 条非正权重）`;
+  $('sCond').className = 'v ' + (condOK ? 'ok' : 'bad');
+  $('sConv').textContent = convex ? '凸 ✓' : '非凸 ✗';
+  $('sConv').className = 'v ' + (convex ? 'ok' : 'bad');
+  $('sFlip').textContent = flips + ' / ' + activeTris.length;
+  $('sFlip').className = 'v ' + (flips === 0 ? 'ok' : 'bad');
+  $('sArea').textContent = a3d > 0 ? (aUv / a3d * 100).toFixed(1) + '%' : '—';
+  const bad = !condOK || !convex;
+  $('sVerdict').textContent = bad ? '前提不成立：可能翻面' : (flips === 0 ? '单射成立 ✓' : '前提成立，尚未收敛');
+  $('sVerdict').className = 'v ' + (bad ? 'bad' : (flips === 0 ? 'ok' : 'warn'));
+}
+
+/* ================= 交互 ================= */
+function refresh(recomputeWeights, reset) {
+  if (recomputeWeights) rebuildWeights();
+  setBoundaryUV($('shape').value);
+  if (reset) resetInterior(); else { iter = 0; converged = false; }
+}
+$('loopK').addEventListener('input', e => {
+  setLoop(+e.target.value); $('lkVal').textContent = 'ring ' + e.target.value + ' / ' + NR; refresh(true, true);
+});
+$('shape').addEventListener('change', () => refresh(false, true));
+$('weight').addEventListener('change', e => { wMode = e.target.value; refresh(true, true); });
+$('bump').addEventListener('input', e => {
+  bumpAmp = +e.target.value; $('bumpVal').textContent = bumpAmp.toFixed(2);
+  buildPositions(); refresh(true, false);
+});
+$('tile').addEventListener('change', e => { tiled = e.target.value === 'tile2'; });
+$('preset').addEventListener('change', e => { setTexture(PRESETS[e.target.value](), '内置 · ' + e.target.options[e.target.selectedIndex].text); });
+$('load').addEventListener('click', () => loadFromURL($('url').value.trim(), 'URL 贴图'));
+$('fit').addEventListener('click', () => { zoom = 1.0; pitch = 0.55; });
+$('reset').addEventListener('click', () => refresh(false, true));
+$('auto').addEventListener('click', e => { autoRot = !autoRot; e.target.textContent = '自动旋转：' + (autoRot ? '开' : '关'); });
+$('wire').addEventListener('click', e => { showWire = !showWire; e.target.textContent = '曲面网格线：' + (showWire ? '开' : '关'); });
+$('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const msg = $('msg');
+  msg.textContent = '读取中…'; msg.style.color = 'var(--ink2)';
+  const rd = new FileReader();
+  rd.onload = () => loadFromURL(String(rd.result), f.name);
+  rd.onerror = () => { msg.textContent = '读取失败'; msg.style.color = 'var(--bad)'; };
+  rd.readAsDataURL(f);
+});
+
+let drag = null;
+c3d.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; c3d.setPointerCapture(e.pointerId); });
+c3d.addEventListener('pointermove', e => {
+  if (!drag) return;
+  yaw += (e.clientX - drag.x) * 0.008;
+  pitch = Math.max(-1.5, Math.min(1.5, pitch + (e.clientY - drag.y) * 0.008));
+  drag = { x: e.clientX, y: e.clientY };
+});
+c3d.addEventListener('pointerup', () => { drag = null; });
+c3d.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.max(0.5, Math.min(2.5, zoom * (e.deltaY > 0 ? 0.92 : 1.08))); }, { passive: false });
+
+/* ================= 主循环 ================= */
+function frame() {
+  if (autoRot) yaw += 0.004;
+  if (!converged) { for (let s = 0; s < 4; s++) { sweep(); if (converged) break; } }
+  draw3D(); drawUV(); updateStatus();
+  requestAnimationFrame(frame);
+}
+
+buildPositions();
+buildTriangles();
+setLoop(+$('loopK').value);
+$('lkVal').textContent = 'ring ' + $('loopK').value + ' / ' + NR;
+rebuildWeights();
+setBoundaryUV('circle');
+resetInterior();
+setTexture(PRESETS.checker(), '内置 · UV 贴图（4×4 格，512×512）');
+frame();
+})();
+</script>
+</body>
+</html>
