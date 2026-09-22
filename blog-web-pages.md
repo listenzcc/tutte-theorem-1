@@ -8,11 +8,11 @@
 
 ## 一、三个页面
 
-| 页面 | 几何来源 | 可调参数 |
-|---|---|---|
-| [定理演示](https://listenzcc.github.io/tutte-theorem-1/tutte-embedding-theorem.html) | 参数曲面，361 顶点 / 684 面 | 闭环半径、边界形状、权重、起伏幅度 |
-| [Bunny 演示](https://listenzcc.github.io/tutte-theorem-1/bunny-tutte.html) | Stanford Bunny，2503 顶点 / 4968 面 | 种子点、BFS 半径、边界形状、权重、显示模式 |
-| [贴图演示](https://listenzcc.github.io/tutte-theorem-1/uv-texture-mapping.html) | 参数曲面 | 同上，外加任意图片贴图 |
+| 页面                                                                                 | 几何来源                            | 可调参数                                   |
+| ------------------------------------------------------------------------------------ | ----------------------------------- | ------------------------------------------ |
+| [定理演示](https://listenzcc.github.io/tutte-theorem-1/tutte-embedding-theorem.html) | 参数曲面，361 顶点 / 684 面         | 闭环半径、边界形状、权重、起伏幅度         |
+| [Bunny 演示](https://listenzcc.github.io/tutte-theorem-1/bunny-tutte.html)           | Stanford Bunny，2503 顶点 / 4968 面 | 种子点、BFS 半径、边界形状、权重、显示模式 |
+| [贴图演示](https://listenzcc.github.io/tutte-theorem-1/uv-texture-mapping.html)      | 参数曲面                            | 同上，外加任意图片贴图                     |
 
 三者共用一套管线，差别只在几何来源和贴图来源。
 
@@ -98,9 +98,11 @@ addEdge(a, b, A, B, C)    // A 在 a 处，B 在 b 处，C 是 b 的对角（c �
 
 同一条无向边被两个三角形各访问一次，键值相同，累加到同一个条目上。最终每个条目存了 $\tan$ 的两个端点分量之和、$\cot$ 之和、边长。三种权重在取用时各自归一化：
 
-$$w_{ij}^{uni} = \frac{1}{\deg(i)}, \qquad
+$$
+w_{ij}^{uni} = \frac{1}{\deg(i)}, \qquad
 w_{ij}^{cot} = \frac{\cot\alpha + \cot\beta}{\sum_k(\cot\alpha_{ik}+\cot\beta_{ik})}, \qquad
-w_{ij}^{mvc} = \frac{\big(\tan\frac{\delta}{2} + \tan\frac{\gamma}{2}\big)/\|x_i-x_j\|}{\sum_k \cdots}$$
+w_{ij}^{mvc} = \frac{\big(\tan\frac{\delta}{2} + \tan\frac{\gamma}{2}\big)/\|x_i-x_j\|}{\sum_k \cdots}
+$$
 
 构建时顺带统计非正权重的条数，状态面板用它显示定理前提是否被破坏。
 
@@ -169,11 +171,11 @@ $$M = \begin{bmatrix} e_1 & e_2 \end{bmatrix} \begin{bmatrix} \delta_1 & \delta_
 代码里展开成四个标量，避免构造中间矩阵：
 
 ```js
-const d  = (u1-u0)*(v2-v0) - (u2-u0)*(v1-v0);
-const m11 = ((s1x-s0x)*(v2-v0) - (s2x-s0x)*(v1-v0)) / d;
-const m12 = ((s2x-s0x)*(u1-u0) - (s1x-s0x)*(u2-u0)) / d;
-const m21 = ((s1y-s0y)*(v2-v0) - (s2y-s0y)*(v1-v0)) / d;
-const m22 = ((s2y-s0y)*(u1-u0) - (s1y-s0y)*(u2-u0)) / d;
+const d = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
+const m11 = ((s1x - s0x) * (v2 - v0) - (s2x - s0x) * (v1 - v0)) / d;
+const m12 = ((s2x - s0x) * (u1 - u0) - (s1x - s0x) * (u2 - u0)) / d;
+const m21 = ((s1y - s0y) * (v2 - v0) - (s2y - s0y) * (v1 - v0)) / d;
+const m22 = ((s2y - s0y) * (u1 - u0) - (s1y - s0y) * (u2 - u0)) / d;
 ```
 
 然后交给 canvas：
@@ -216,12 +218,12 @@ clip 时把三角形按重心外扩 2%–3%，否则相邻三角形的抗锯齿�
 
 每个结论都有两条独立实现互相验证：
 
-| | 页面（JS） | 离线脚本（Python） |
-|---|---|---|
-| 求解 | Gauss–Seidel，逐帧推进 | `scipy.sparse.linalg.spsolve` 直接解 |
-| 数据结构 | 手写 CSR + Map | numpy 向量化 |
-| 渲染 | Canvas 2D | matplotlib `Poly3DCollection` |
-| 用途 | 交互 | 出图与量化指标 |
+|          | 页面（JS）             | 离线脚本（Python）                   |
+| -------- | ---------------------- | ------------------------------------ |
+| 求解     | Gauss–Seidel，逐帧推进 | `scipy.sparse.linalg.spsolve` 直接解 |
+| 数据结构 | 手写 CSR + Map         | numpy 向量化                         |
+| 渲染     | Canvas 2D              | matplotlib `Poly3DCollection`        |
+| 用途     | 交互                   | 出图与量化指标                       |
 
 同参数下区域顶点数、面数、$\chi$、闭环长度、翻面数、面积比全部一致。三个校验脚本：
 
@@ -255,5 +257,5 @@ node check-html-syntax.js *.html   # 内联 script 编译检查
 - 仓库：<https://github.com/listenzcc/tutte-theorem-1>
 - 定理说明：[Tutte 嵌入定理](https://github.com/listenzcc/tutte-theorem-1/blob/main/blog-tutte-theory.md)
 - 实测数据：[在 Stanford Bunny 上跑 Tutte 嵌入](https://github.com/listenzcc/tutte-theorem-1/blob/main/blog-bunny-tutte.md)
-- M. S. Floater, *Mean value coordinates*, CAGD 20(1):19–27, 2003.
-- M. S. Floater, K. Hormann, *Surface parameterization: a tutorial and survey*, 2005.
+- M. S. Floater, _Mean value coordinates_, CAGD 20(1):19–27, 2003.
+- M. S. Floater, K. Hormann, _Surface parameterization: a tutorial and survey_, 2005.

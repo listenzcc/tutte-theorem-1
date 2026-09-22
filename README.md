@@ -31,11 +31,11 @@ $$\mathbf{u}_i = \sum_{j \in N(i)} w_{ij}\,\mathbf{u}_j, \qquad w_{ij} > 0, \qqu
 
 ## 三个演示
 
-| 页面 | 内容 |
-|---|---|
-| [`tutte-embedding-theorem.html`](tutte-embedding-theorem.html) | 参数曲面上取闭环，调边界形状（圆 / 五角星 / L 形）与权重（均匀 / 余切 / 均值坐标），看翻面被标红、UV 面板同步更新 |
-| [`uv-texture-mapping.html`](uv-texture-mapping.html) | 上传本地图片或填 URL 当作贴图，按算出的 UV 铺到曲面上；内置 UV checker 与色卡两种预设 |
-| [`bunny-tutte.html`](bunny-tutte.html) | 真实扫描模型 Stanford Bunny。从种子点 BFS 扩张取区域，先判拓扑圆盘，合法了才解嵌入 |
+| 页面                                                                                                       | 内容                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [`tutte-embedding-theorem.html`](https://listenzcc.github.io/tutte-theorem-1/tutte-embedding-theorem.html) | 参数曲面上取闭环，调边界形状（圆 / 五角星 / L 形）与权重（均匀 / 余切 / 均值坐标），看翻面被标红、UV 面板同步更新 |
+| [`uv-texture-mapping.html`](https://listenzcc.github.io/tutte-theorem-1/uv-texture-mapping.html)           | 上传本地图片或填 URL 当作贴图，按算出的 UV 铺到曲面上；内置 UV checker 与色卡两种预设                             |
+| [`bunny-tutte.html`](https://listenzcc.github.io/tutte-theorem-1/bunny-tutte.html)                         | 真实扫描模型 Stanford Bunny。从种子点 BFS 扩张取区域，先判拓扑圆盘，合法了才解嵌入                                |
 
 前两个直接双击打开就行。`bunny-tutte.html` 要 `fetch` 加载 OBJ，得走 http：
 
@@ -56,33 +56,33 @@ python -m http.server 8765
 
 兔子是**带 4 个洞的开曲面**，不是闭曲面：
 
-| 指标 | 数值 |
-|---|---|
+| 指标                               | 数值        |
+| ---------------------------------- | ----------- |
 | 顶点 / 三角面（`bunny_small.obj`） | 2503 / 4968 |
-| 边界边（只属于 1 个面） | 42 |
-| 欧拉特征 $\chi = V - E + F$ | $-2$ |
-| 洞的数量 | 4 |
+| 边界边（只属于 1 个面）            | 42          |
+| 欧拉特征 $\chi = V - E + F$        | $-2$        |
+| 洞的数量                           | 4           |
 
 这一条决定了能圈出多大区域。从种子点按 BFS 跳数扩张，扫一遍半径：
 
-| 种子 | h=6 | h=10 | h=14 | h=18 | h=22 | h=26 | h=30 |
-|---|---|---|---|---|---|---|---|
-| 耳朵尖 | ✓ 211面 | ✓ 433面 | ✗ χ=0 | ✗ χ=0 | ✗ χ=0 | ✓ 2899面 | ✓ 3751面 |
-| 鼻子 | ✓ 218面 | ✓ 523面 | ✗ χ=0 | ✗ χ=−3 | ✗ χ=−3 | ✗ | ✗ χ=−3 |
-| 尾巴 | ✓ 261面 | ✓ 723面 | ✗ χ=0 | ✗ χ=0 | ✓ 3288面 | ✗ χ=0 | ✗ χ=−3 |
-| 背部 | ✓ 229面 | ✓ 621面 | ✓ 1169面 | ✗ χ=0 | ✗ | ✗ | ✗ |
-| 腹部 | ✗ χ=0 | ✗ χ=−2 | ✗ χ=−3 | ✗ χ=−4 | ✗ χ=−4 | ✗ | ✗ χ=−4 |
+| 种子   | h=6     | h=10    | h=14     | h=18   | h=22     | h=26     | h=30     |
+| ------ | ------- | ------- | -------- | ------ | -------- | -------- | -------- |
+| 耳朵尖 | ✓ 211面 | ✓ 433面 | ✗ χ=0    | ✗ χ=0  | ✗ χ=0    | ✓ 2899面 | ✓ 3751面 |
+| 鼻子   | ✓ 218面 | ✓ 523面 | ✗ χ=0    | ✗ χ=−3 | ✗ χ=−3   | ✗        | ✗ χ=−3   |
+| 尾巴   | ✓ 261面 | ✓ 723面 | ✗ χ=0    | ✗ χ=0  | ✓ 3288面 | ✗ χ=0    | ✗ χ=−3   |
+| 背部   | ✓ 229面 | ✓ 621面 | ✓ 1169面 | ✗ χ=0  | ✗        | ✗        | ✗        |
+| 腹部   | ✗ χ=0   | ✗ χ=−2  | ✗ χ=−3   | ✗ χ=−4 | ✗ χ=−4   | ✗        | ✗ χ=−4   |
 
 合法半径**不连续**：耳朵尖 h=10 合法，h=14 到 22 全不合法（区域骑到了洞上），h=26 又合法。腹部种子紧贴洞边，全程无解。
 
 前提满足时的结果：
 
-| 配置 | 面数 | χ | 闭环 | 翻面 | 角度畸变均值 | $\log_2$ 面积比中位 |
-|---|---|---|---|---|---|---|
-| 耳朵 h=10，圆形，MVC | 433 | 1 | 27 | 0 | 13.38° | −4.08 |
-| 耳朵 h=26，圆形，MVC | 2899 | 1 | 91 | 0 | 9.46° | −0.87 |
-| 耳朵 h=10，五角星，MVC | 433 | 1 | 27 | **14** | 18.19° | −3.95 |
-| 耳朵 h=20，圆形，余切 | 1783 | 1 | — | 0 | 10.36° | −1.61 |
+| 配置                   | 面数 | χ   | 闭环 | 翻面   | 角度畸变均值 | $\log_2$ 面积比中位 |
+| ---------------------- | ---- | --- | ---- | ------ | ------------ | ------------------- |
+| 耳朵 h=10，圆形，MVC   | 433  | 1   | 27   | 0      | 13.38°       | −4.08               |
+| 耳朵 h=26，圆形，MVC   | 2899 | 1   | 91   | 0      | 9.46°        | −0.87               |
+| 耳朵 h=10，五角星，MVC | 433  | 1   | 27   | **14** | 18.19°       | −3.95               |
+| 耳朵 h=20，圆形，余切  | 1783 | 1   | —    | 0      | 10.36°       | −1.61               |
 
 面积畸变的尾部很重：中位数 −4.08 意味着一半的三角形被压缩了 16 倍以上，四分位距跨 9 个 $\log_2$ 单位。这是固定边界的参数化的典型形态。
 
@@ -96,11 +96,11 @@ python -m http.server 8765
 
 ## 文章
 
-| 文章 | 内容 |
-|---|---|
+| 文章                                           | 内容                                                                                                                                |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | [`blog-tutte-theory.md`](blog-tutte-theory.md) | 定理理论：表述与证明骨架（极值原理 → 局部单射 → 度论证）、三种权重的来头与正值性、定理的覆盖范围、与 Radó–Kneser–Choquet 定理的对应 |
-| [`blog-web-pages.md`](blog-web-pages.md) | 页面实现：管线七阶段、区域与圆盘判定、Gauss–Seidel 求解、逐三角形仿射贴图的矩阵推导、Canvas 2D 的取舍、两条实现的交叉校验 |
-| [`blog-bunny-tutte.md`](blog-bunny-tutte.md) | 实测笔记：模型拓扑体检、半径扫描表、翻面与畸变的量化结果、7 张配图 |
+| [`blog-web-pages.md`](blog-web-pages.md)       | 页面实现：管线七阶段、区域与圆盘判定、Gauss–Seidel 求解、逐三角形仿射贴图的矩阵推导、Canvas 2D 的取舍、两条实现的交叉校验           |
+| [`blog-bunny-tutte.md`](blog-bunny-tutte.md)   | 实测笔记：模型拓扑体检、半径扫描表、翻面与畸变的量化结果、7 张配图                                                                  |
 
 ---
 
@@ -154,11 +154,11 @@ python check-blog-style.py         # 笔记风格与引用校验
 
 ## 参考
 
-- W. T. Tutte, *How to draw a graph*, Proc. London Math. Soc. 13(3):743–767, 1963.
-- M. S. Floater, *Mean value coordinates*, Computer Aided Geometric Design 20(1):19–27, 2003.
-- M. S. Floater, K. Hormann, *Surface parameterization: a tutorial and survey*, 2005.
+- W. T. Tutte, _How to draw a graph_, Proc. London Math. Soc. 13(3):743–767, 1963.
+- M. S. Floater, _Mean value coordinates_, Computer Aided Geometric Design 20(1):19–27, 2003.
+- M. S. Floater, K. Hormann, _Surface parameterization: a tutorial and survey_, 2005.
 - Stanford 3D Scanning Repository（Stanford Bunny 模型）。
-- CGAL, *Planar Parameterization of Triangulated Surface Meshes*（各方法的 bijectivity 条件）。
+- CGAL, _Planar Parameterization of Triangulated Surface Meshes_（各方法的 bijectivity 条件）。
 
 模型下载自 <https://graphics.stanford.edu/~mdfisher/Data/Meshes/bunny.obj> 与
 [common-3d-test-models](https://github.com/alecjacobson/common-3d-test-models)。
