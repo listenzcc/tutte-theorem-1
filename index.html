@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tutte 嵌入定理 · 三个交互演示与一篇实测笔记</title>
+<meta name="description" content="Tutte 嵌入定理（1963）的交互演示：在参数曲面与 Stanford Bunny 上取闭环、验证拓扑圆盘、解 Tutte 嵌入得到 UV，并把贴图贴回曲面。">
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e3e7ec; --ink:#1b2027; --ink2:#5b6573;
+    --accent:#2f6fd0; --ok:#17864f; --bad:#cf4438; --warn:#b8770f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       line-height:1.7;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:34px 20px 70px}
+  h1{font-size:25px;margin:0 0 8px;letter-spacing:.2px;line-height:1.35}
+  .sub{color:var(--ink2);font-size:14px;margin:0 0 6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px;letter-spacing:.2px}
+  p{margin:0 0 10px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12.5px;
+       font-family:ui-monospace,Consolas,"Courier New",monospace}
+  pre{background:#f8f9fb;border:1px solid var(--line);border-radius:8px;padding:12px 14px;
+      overflow-x:auto;font-size:12.5px;line-height:1.65;margin:10px 0 0;
+      font-family:ui-monospace,Consolas,"Courier New",monospace}
+  pre code{background:none;padding:0;font-size:12.5px}
+  ul{margin:0 0 10px;padding-left:20px}
+  li{margin-bottom:5px}
+  .foot{color:var(--ink2);font-size:12.5px}
+
+  /* 定理速览 */
+  .hero{display:block;width:100%;height:auto;margin:4px 0 2px}
+
+  /* 演示卡片 */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .demo{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);
+        border-radius:10px;padding:16px 18px;text-decoration:none;color:inherit;transition:.15s}
+  .demo:hover{border-color:#c3d4ee;box-shadow:0 3px 12px rgba(47,111,208,.09);text-decoration:none}
+  .demo .tag{display:inline-block;align-self:flex-start;font-size:11px;color:#fff;background:var(--accent);
+             border-radius:4px;padding:1px 7px;margin-bottom:8px;letter-spacing:.3px}
+  .demo .tag.p2{background:var(--ok)}
+  .demo .tag.p3{background:var(--warn)}
+  .demo h3{font-size:14.5px;margin:0 0 6px}
+  .demo p{font-size:13px;color:var(--ink2);margin:0 0 10px}
+  .demo .go{font-size:12.5px;color:var(--accent);margin-top:auto}
+
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 10px;text-align:left}
+  th{color:var(--ink2);font-weight:600}
+  td.num{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Tutte 嵌入定理：闭环钉在凸多边形上，内部就能摊平</h1>
+  <p class="sub">
+    1963 年 Tutte 的 <i>How to draw a graph</i> 给出一个构造性的平面嵌入方法。放到三角网格上读，
+    它回答的正是 UV 参数化里那个最基础的问题：<b>什么时候摊平一定不会翻面</b>。
+  </p>
+
+  <div class="card">
+    <svg class="hero" viewBox="0 0 900 210" role="img" aria-label="闭环钉到凸多边形上、内部顶点取邻居凸组合的示意">
+      <defs>
+        <linearGradient id="gsurf" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#eef2f7"/><stop offset="100%" stop-color="#dde5ef"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 左：3D 曲面 + 闭环 -->
+      <path d="M40 150 C 90 92, 150 74, 205 96 C 258 118, 246 168, 190 182 C 130 196, 74 186, 40 150 Z"
+            fill="url(#gsurf)" stroke="#b9c4d2" stroke-width="1.2"/>
+      <g stroke="#c6cfdb" stroke-width="0.8" fill="none">
+        <path d="M78 118 C 116 100, 156 100, 186 116"/>
+        <path d="M66 140 C 108 122, 158 122, 196 140"/>
+        <path d="M60 162 C 104 146, 160 148, 200 164"/>
+        <path d="M96 92 C 104 124, 106 158, 98 190"/>
+        <path d="M136 84 C 140 122, 140 160, 132 194"/>
+        <path d="M176 90 C 178 124, 176 160, 168 190"/>
+      </g>
+      <path d="M104 108 C 130 92, 166 96, 178 116 C 190 138, 168 166, 138 168 C 110 170, 88 140, 104 108 Z"
+            fill="none" stroke="#cf4438" stroke-width="2.6" stroke-linecap="round"/>
+      <circle cx="104" cy="108" r="3.6" fill="#cf4438"/>
+      <text x="126" y="205" font-size="12" fill="#5b6573" text-anchor="middle"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">曲面上取一条闭环</text>
+
+      <!-- 箭头 -->
+      <path d="M232 112 L 300 112" stroke="#2f6fd0" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 1 L 9 5 L 0 9 z" fill="#2f6fd0"/></marker></defs>
+      <text x="266" y="100" font-size="11.5" fill="#2f6fd0" text-anchor="middle"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">解线性系统</text>
+
+      <!-- 中：圆盘 -->
+      <circle cx="400" cy="112" r="72" fill="#f4f8fd" stroke="#2f6fd0" stroke-width="2"/>
+      <g stroke="#c9d8ee" stroke-width="0.8" fill="none">
+        <circle cx="400" cy="112" r="52"/><circle cx="400" cy="112" r="32"/>
+        <path d="M328 112 H 472"/><path d="M400 40 V 184"/>
+        <path d="M349 61 L 451 163"/><path d="M451 61 L 349 163"/>
+      </g>
+      <g fill="#2f6fd0">
+        <circle cx="400" cy="72" r="3"/><circle cx="400" cy="152" r="3"/>
+        <circle cx="360" cy="112" r="3"/><circle cx="440" cy="112" r="3"/>
+        <circle cx="400" cy="112" r="3.6"/>
+      </g>
+      <text x="400" y="205" font-size="12" fill="#5b6573" text-anchor="middle"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">闭环按弧长钉到凸多边形边界</text>
+
+      <!-- 箭头 -->
+      <path d="M500 112 L 560 112" stroke="#2f6fd0" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+
+      <!-- 右：凸组合公式 -->
+      <rect x="586" y="52" width="286" height="118" rx="9" fill="#fbfcfd" stroke="#e3e7ec"/>
+      <text x="606" y="82" font-size="13" fill="#1b2027"
+            font-family="ui-monospace,Consolas,'Courier New',monospace">u_i = Σ w_ij · u_j</text>
+      <text x="606" y="106" font-size="12" fill="#5b6573"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">w_ij &gt; 0（严格凸组合）</text>
+      <text x="606" y="126" font-size="12" fill="#5b6573"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">Σ_j w_ij = 1</text>
+      <text x="606" y="150" font-size="12" fill="#17864f"
+            font-family="-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">⟹ 分片线性映射全局单射</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <h2>定理的两个前提</h2>
+    <ul>
+      <li><b>边界</b>：闭环的顶点被钉到一个<b>凸</b>多边形的边界上，顺序一致。</li>
+      <li><b>内部</b>：每个内部顶点的 UV 是它邻居 UV 的<b>严格凸组合</b>——权重全为正、和为 1。</li>
+    </ul>
+    <p>两条同时成立，得到的分片线性映射就是全局单射，一个三角形都不会翻。这是<b>充分条件</b>：
+    前提破了不保证立刻出事（实测里有 709 条权重非正却 0 翻面的例子），但保证没了。</p>
+  </div>
+
+  <h2 style="font-size:16px;margin:26px 0 12px">三个演示</h2>
+  <div class="grid">
+
+    <a class="demo" href="tutte-embedding-theorem.html">
+      <span class="tag">参数曲面</span>
+      <h3>定理本身：看得见的前提与结论</h3>
+      <p>在参数曲面上取闭环，调边界形状（圆 / 五角星 / L 形）和权重（均匀 / 余切 / 均值坐标），
+         实时看翻面三角形被标红、UV 面板同步更新。</p>
+      <span class="go">打开演示 →</span>
+    </a>
+
+    <a class="demo" href="uv-texture-mapping.html">
+      <span class="tag p2">任意图片</span>
+      <h3>把任意图片贴上去</h3>
+      <p>上传本地图片或填一个 URL 当作贴图，按算出来的 UV 铺到左边的曲面上。
+         内置 UV checker 与色卡两种预设，切换时能直接看出参数化的拉伸分布。</p>
+      <span class="go">打开演示 →</span>
+    </a>
+
+    <a class="demo" href="bunny-tutte.html">
+      <span class="tag p3">真实扫描模型</span>
+      <h3>Stanford Bunny：拓扑先过关，才谈摊平</h3>
+      <p>兔子是带 4 个洞的开曲面（χ = −2）。从种子点按 BFS 跳数扩张取区域，先判 χ 和边界环数，
+         合法了才解 Tutte 嵌入。可以亲眼看到"合法半径不连续"这件事。</p>
+      <span class="go">打开演示 →</span>
+    </a>
+
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>实测里几个反直觉的数</h2>
+    <table>
+      <tr><th>配置（种子 = 耳朵尖）</th><th>面数</th><th>χ</th><th>翻面</th></tr>
+      <tr><td>BFS 半径 10，边界圆形，MVC 权重</td><td class="num">433</td><td class="num">1</td><td class="num">0</td></tr>
+      <tr><td>BFS 半径 26，边界圆形，MVC 权重</td><td class="num">2899</td><td class="num">1</td><td class="num">0</td></tr>
+      <tr><td>BFS 半径 14–22（区域骑到洞上）</td><td class="num">—</td><td class="num">0</td><td class="num">解不出来</td></tr>
+      <tr><td>半径 10，边界换成五角星</td><td class="num">433</td><td class="num">1</td><td class="num">14</td></tr>
+      <tr><td>半径 20，权重换成余切</td><td class="num">1783</td><td class="num">1</td><td class="num">0</td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:13px;color:var(--ink2)">
+      五角星的 14 个翻面全部堆在凹角上；余切权重那行有 709 条边权重非正，这一例却一个翻面都没有。
+      定理不管的另一件事是畸变：面积比的中位数是 −4.08（约 16 倍压缩），四分位距跨 9 个 log₂ 单位。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>文档</h2>
+    <ul>
+      <li><a href="https://github.com/listenzcc/tutte-theorem-1/blob/main/blog-bunny-tutte.md">在 Stanford Bunny 上跑 Tutte 嵌入</a>
+          ——七节：模型拓扑体检、取闭环与圆盘判定、解嵌入、破坏前提、畸变统计、踩坑清单、复现方式。
+          <a href="blog-bunny-tutte.md">（Markdown 原文）</a></li>
+      <li><a href="https://github.com/listenzcc/tutte-theorem-1/blob/main/tutte-embedding-theorem.md">定理说明</a>
+          ——一句话答案、定理表述、证明直觉、常见误记与命名速查。
+          <a href="tutte-embedding-theorem.md">（Markdown 原文）</a></li>
+      <li><a href="https://github.com/listenzcc/tutte-theorem-1#readme">仓库 README</a>
+          ——文件清单、本地运行方式、模型与参考文献来源。</li>
+    </ul>
+    <p style="font-size:12.5px;color:var(--ink2);margin:0">
+      站点用 <code>.nojekyll</code> 关掉了 Jekyll，Markdown 按原文件托管，所以这里直接给 GitHub 的渲染链接。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>本地运行</h2>
+    <p>三个页面都是单文件、零依赖，直接双击打开即可。<code>bunny-tutte.html</code> 例外：它要 <code>fetch</code>
+    加载 <code>model/bunny_small.obj</code>，在 <code>file://</code> 下会被浏览器拦截，需要起个本地服务：</p>
+    <pre><code>python -m http.server 8765
+# 然后打开 http://127.0.0.1:8765/index.html</code></pre>
+    <p style="margin-top:10px">页面状态可以用 URL 参数固定，方便复现和分享：</p>
+    <pre><code>?seed=ear&amp;hop=10&amp;shape=circle&amp;weight=mvc&amp;view=tex</code></pre>
+  </div>
+
+  <p class="foot">
+    模型来源：Stanford 3D Scanning Repository（Stanford Bunny）。
+    定理出处：W. T. Tutte, <i>How to draw a graph</i>, Proc. London Math. Soc. 13(3):743–767, 1963。
+    页面纯前端实现，不采集任何数据。
+  </p>
+
+</div>
+</body>
+</html>
