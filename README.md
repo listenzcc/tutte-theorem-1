@@ -119,9 +119,10 @@ blog-bunny-tutte.md             实测笔记（七节 + 7 张图）
 tutte-embedding-theorem.md      定理速查
 
 render-bunny-figs.py            离线出图与量化指标（numpy / scipy / matplotlib）
+render-theory-figs.py           定理篇配图（参数曲面 + Tutte 求解 + 示意图）
 model/bunny_small.obj           2503 顶点 / 4968 面
 model/stanford-bunny.obj        35947 顶点 / 69451 面
-figs/*.png                      笔记里的 7 张图
+figs/*.png                      三篇笔记的 11 张图
 
 check-bunny-page.js             页面 JS 与离线脚本的数字交叉验算
 check-tex-parity.py             页面贴图与离线贴图逐像素比对
