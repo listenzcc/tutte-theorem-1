@@ -311,8 +311,12 @@ def fig_convex_combo():
     nb = nb[np.argsort(np.arctan2(nb[:, 1], nb[:, 0]))]
     k = len(nb)
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.6))
-    fig.subplots_adjust(left=0.03, right=0.97, top=0.88, bottom=0.06, wspace=0.12)
+    from matplotlib.gridspec import GridSpec
+    # 用 constrained layout 让 matplotlib 自己算间距：总标题在顶、图例在底，
+    # 不再手工写 top/bottom，避免文字互相压到
+    fig = plt.figure(figsize=(10.2, 6.75), layout='constrained')
+    gs = GridSpec(2, 2, figure=fig, height_ratios=[4.4, 1.0])
+    fig.get_layout_engine().set(wspace=0.16, hspace=0.10, w_pad=0.02, h_pad=0.06)
 
     from scipy.spatial import ConvexHull, Delaunay
     hull_idx = ConvexHull(nb).vertices
@@ -335,35 +339,77 @@ def fig_convex_combo():
           % (w.sum(), w2.sum(), bool(inside.find_simplex(ctr) >= 0),
              bool(inside.find_simplex(ctr2) < 0)))
 
-    for ax, ctr_i, w_i, title, sub in (
-        (axes[0], ctr, w, '(a) $w_{ij}>0$、$\\sum_j w_{ij}=1$：重心落在邻居凸包内', '绕向一致，局部单射'),
-        (axes[1], ctr2, w2, '(b) $w_1=-0.60$（仍满足 $\\sum_j w_{ij}=1$）：重心被推出凸包', '绕向翻转，出现翻面'),
-    ):
+    for col, (ctr_i, w_i, title, sub) in enumerate((
+        (ctr, w, '(a) $w_{ij}>0$、$\\sum_j w_{ij}=1$', '重心落在邻居凸包内，绕向一致'),
+        (ctr2, w2, '(b) $w_1=-0.60$（仍有 $\\sum_j w_{ij}=1$）', '重心被推出凸包，绕向翻转'),
+    )):
         from matplotlib.patches import Polygon as MplPoly
+        ax = fig.add_subplot(gs[0, col])
         ax.add_patch(MplPoly(hull, closed=True, facecolor='#eef3fa', edgecolor=LINE, lw=1.0, zorder=0))
+        nflip = 0
         for j in range(k):
             a, b = nb[j], nb[(j + 1) % k]
             tri = np.vstack([ctr_i, a, b])
             s = (a[0] - ctr_i[0]) * (b[1] - ctr_i[1]) - (b[0] - ctr_i[0]) * (a[1] - ctr_i[1])
             bad = s <= 0
+            nflip += bad
             ax.add_patch(MplPoly(tri, closed=True,
                                  facecolor=(RED if bad else '#dce9f8'),
                                  edgecolor=(RED if bad else BLUE), lw=1.0, alpha=0.9, zorder=1))
         cols = [RED if x < 0 else GREEN for x in w_i]
-        ax.scatter(nb[:, 0], nb[:, 1], s=58, c=cols, zorder=3, edgecolors='white', linewidths=1)
-        ax.scatter([ctr_i[0]], [ctr_i[1]], s=95, c=BLUE, marker='*', zorder=4,
-                   edgecolors='white', linewidths=0.8)
+        ax.scatter(nb[:, 0], nb[:, 1], s=560, c=cols, zorder=3,
+                   edgecolors='white', linewidths=1.4)
         for j in range(k):
-            ax.annotate(f'$w_{{{j}}}=${w_i[j]:+.2f}',
-                        (nb[j, 0], nb[j, 1]),
-                        (nb[j, 0] * 1.28 + 0.03, nb[j, 1] * 1.28),
-                        fontsize=8.5, color=(RED if w_i[j] < 0 else GREY), ha='center')
-        ax.set_xlim(-1.55, 1.65); ax.set_ylim(-1.55, 1.65)
+            ax.text(nb[j, 0], nb[j, 1], str(j), ha='center', va='center',
+                    fontsize=9, color='white', zorder=5)
+        ax.scatter([ctr_i[0]], [ctr_i[1]], s=170, c=BLUE, marker='*', zorder=4,
+                   edgecolors='white', linewidths=0.8)
+        ax.annotate('重心', (ctr_i[0], ctr_i[1]), xytext=(0, -30),
+                    textcoords='offset points', fontsize=9.5, color=BLUE, ha='center',
+                    arrowprops=dict(arrowstyle='->', color=BLUE, lw=1.0,
+                                    shrinkA=2, shrinkB=6))
+        ax.set_xlim(-1.60, 1.60); ax.set_ylim(-1.50, 1.55)
         ax.set_aspect('equal'); ax.axis('off')
-        ax.set_title(title + '\n' + sub, fontsize=10.5, pad=6)
+        ax.set_title(title + '\n' + sub + f'（翻面 {nflip}）', fontsize=10.5, pad=6)
 
-    fig.suptitle('图 2  凸组合条件：内部顶点取邻居的加权平均，权重为正时绕向不变',
-                 fontsize=11.5, y=0.97)
+        # 权重条形图
+        axb = fig.add_subplot(gs[1, col])
+        axb.bar(np.arange(k), w_i, width=0.62,
+                color=[RED if x < 0 else GREEN for x in w_i], zorder=2)
+        axb.axhline(0, color=GREY, lw=0.9, zorder=3)
+        for j, v in enumerate(w_i):
+            axb.text(j, v + (0.03 if v >= 0 else -0.13), f'{v:+.2f}',
+                     ha='center', fontsize=8.5, color=(RED if v < 0 else GREY))
+        axb.set_xticks(np.arange(k))
+        axb.set_xticklabels([f'$w_{j}$' for j in range(k)], fontsize=9)
+        axb.set_ylim(-0.95, 0.62)
+        axb.set_ylabel('权重', fontsize=9)
+        for s_ in ('top', 'right'):
+            axb.spines[s_].set_visible(False)
+        for s_ in ('left', 'bottom'):
+            axb.spines[s_].set_color(LINE)
+        axb.tick_params(labelsize=8.5, color=LINE)
+
+    from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
+
+    handles = [
+        Patch(facecolor='#eef3fa', edgecolor=LINE, lw=1.0, label='邻居凸包'),
+        Patch(facecolor='#dce9f8', edgecolor=BLUE, lw=1.0, label='扇形：绕向一致'),
+        Patch(facecolor=RED, edgecolor=RED, lw=1.0, label='扇形：绕向翻转（翻面）'),
+        Line2D([], [], marker='o', ls='', ms=8, mfc=GREEN, mec='white',
+               mew=1.2, label='邻居顶点 $w_j>0$'),
+        Line2D([], [], marker='o', ls='', ms=8, mfc=RED, mec='white',
+               mew=1.2, label='邻居顶点 $w_j<0$'),
+        Line2D([], [], marker='*', ls='', ms=13, mfc=BLUE, mec='white',
+               mew=0.8, label='凸组合重心 $\\mathbf{u}_v$'),
+    ]
+    # loc='outside lower center'：图例排在图的最下方，constrained layout 会为它预留高度
+    fig.legend(handles=handles, loc='outside lower center', ncol=3, frameon=False,
+               fontsize=9.5, columnspacing=1.6, handletextpad=0.5, labelspacing=0.5)
+    fig.suptitle('图 2  凸组合条件：内部顶点取邻居的加权平均，$w_{ij}>0$ 时重心不跑出邻居凸包，'
+                 '绕向保持不变', fontsize=11.5)
+
     p = os.path.join(OUT, 'theory2-convex-combo.png')
     fig.savefig(p, dpi=125, facecolor='white')
     plt.close(fig)

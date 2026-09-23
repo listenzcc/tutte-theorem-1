@@ -129,6 +129,7 @@ check-tex-parity.py             页面贴图与离线贴图逐像素比对
 check-tex-raster.js             上面那个脚本用的 canvas 光栅化器
 check-html-syntax.js            三个页面内联 script 的编译检查（无浏览器环境下用）
 check-blog-style.py             笔记交付前校验（禁用句式、公式配对、图片引用）
+check-fig-overlap.py            出图自检：文字互相压到 / 被画布切掉
 ```
 
 ## 复现
@@ -149,6 +150,7 @@ node check-bunny-page.js           # JS / Python 数字逐项比对
 node check-html-syntax.js *.html   # 内联 script 语法检查
 python check-tex-parity.py         # 两张 UV 贴图逐像素比对
 python check-blog-style.py         # 笔记风格与引用校验
+python check-fig-overlap.py        # 11 张图的文字重叠 / 出界自检
 ```
 
 ---

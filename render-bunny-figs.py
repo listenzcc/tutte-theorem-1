@@ -732,7 +732,7 @@ def main():
     W = {}
     for kind in ('uniform', 'mvc', 'cotan'):
         W[kind] = run('w_' + kind, 'ear', 20, kind=kind)
-    fig, axes = plt.subplots(1, 3, figsize=(11.4, 4.3), dpi=150)
+    fig, axes = plt.subplots(1, 3, figsize=(11.4, 4.7), dpi=150, layout='constrained')
     vmax = 60.0
     for ax, kind, label in zip(axes, ('uniform', 'mvc', 'cotan'),
                                ('均匀 1/deg（Tutte 原始）', '均值坐标 MVC', '余切 cotan')):
@@ -768,9 +768,8 @@ def main():
         cb = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.03)
         cb.set_label('三角形最大角度误差 (°)', fontsize=8)
         cb.ax.tick_params(labelsize=7)
-    fig.suptitle('同一区域（耳朵圆盘，1783 面）、不同凸组合权重下的 UV 摊平质量', fontsize=10, y=1.02)
-    fig.tight_layout()
-    fig.savefig(os.path.join(OUT, 'fig6-weights.png'), bbox_inches='tight', facecolor='white')
+    fig.suptitle('同一区域（耳朵圆盘，1783 面）、不同凸组合权重下的 UV 摊平质量', fontsize=10)
+    fig.savefig(os.path.join(OUT, 'fig6-weights.png'), facecolor='white')
     plt.close(fig)
 
     # 7 贴图本身：4×4 UV checker，标出 u / v 方向
